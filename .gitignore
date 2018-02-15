@@ -50,3 +50,8 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+aspm_data/processed
+metar_data/previous
+metar_data/processed
+metar_data/raw
+notam_data/processed
