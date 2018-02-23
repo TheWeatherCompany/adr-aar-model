@@ -77,11 +77,11 @@ forecast_lags <- function(dataset, var){
     lag_var <- paste0(var,"_lag",abs(hr))
     
     ## calculate the n hour change
-    delta_val <- var_val[,var] - lag_val
-    delta_var <- paste0(var,"_ch",abs(hr))
+    # delta_val <- var_val[,var] - lag_val
+    # delta_var <- paste0(var,"_ch",abs(hr))
     
     var_val[,lag_var] <- lag_val
-    var_val[,delta_var] <- delta_val
+    # var_val[,delta_var] <- delta_val
   }
   return(var_val)
 }

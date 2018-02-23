@@ -20,7 +20,7 @@ suppressPackageStartupMessages(library(randomForest))
 
 source('/Users/jfinn/Google Drive/ADR AAR Model Build/2017 Model Re-Train/metar_data/metar_subfunctions.R')
 
-metar_download_mesonet <- function(start_date, end_date, input_network, input_state, input_faaid, output_dir){
+metar_download_mesonet <- function(start_date, end_date, input_network, input_state, input_faaid){
   service <- "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?"
   service <- paste0(service, "data=all&tz=Etc/UTC&format=onlycomma&latlon=yes&")
   service <- paste0(service, "year1=", year(start_date), "&month1=", month(start_date), "&day1=", mday(start_date), "&")
@@ -43,7 +43,7 @@ metar_download_mesonet <- function(start_date, end_date, input_network, input_st
   datestring1 <- format(start_date, "%Y%m%d")
   datestring2 <- format(end_date, "%Y%m%d")
   output_raw <- str_c(input_faaid, "_", datestring1, "_to_", datestring2, ".txt")
-  output_raw <- file.path(output_dir, "raw", output_raw)
+  output_raw <- file.path("raw", output_raw)
   download.file(metar_url, output_raw, "auto")
 }
 
@@ -235,45 +235,45 @@ metar_process <- function(dat){
   dat <- dat[order(dat$datetime),]
   
   ## for 1-24 hour periods, calculate the max, min, average for weather features
-  names(dat) <- tolower(names(dat))
-  wx_calc_vars <- c("wspd","wdir_sin","vis","ceiling","ceiling_ln","clds_pct",
-                    # "temp","dewpt","rh",
-                    "wx_obscur","wx_precip","wx_convec","wx_other","wx_light","wx_heavy",
-                    "hrs_precip","hrs_obscur","hrs_convec","hrs_precip_daily","hrs_obscur_daily",
-                    "lifr","ifr","mvfr","vfr","hrs_lifr","hrs_ifr","hrs_mvfr","hrs_vfr",
-                    "hrs_lifr_daily","hrs_ifr_daily","hrs_mvfr_daily","hrs_vfr_daily"
-  )
-  for(var in wx_calc_vars){
-    # print(var)
-    ## calculate rolling min, max, avg values
-    temp_dat <- wx_calcs(dat, var)
-    # temp_dat$datetime <- as.character(temp_dat$datetime)
-    ## create lag variables
-    lag_vars <- names(temp_dat)[!names(temp_dat) %in% c("datetime")]
-    for(l_var in lag_vars){
-      temp_dat_lag <- wx_lags(temp_dat, l_var)
-      temp_dat_lag[,c("datetime", l_var)] <- NULL
-      temp_dat <- cbind(temp_dat, temp_dat_lag)
-      rm(temp_dat_lag)
-    }
-    temp_dat[,c(var, "datetime")] <- NULL
-    dat <- cbind(dat, temp_dat)  
-    rm(temp_dat, var)
-    
-    # ## just lags
-    # for(hr in c(seq(from = 1, to = 12, by = 1))){
-    #   ## calculate the lag
-    #   lag_val <- shift(x = dat[,var], n = hr, type ="lag")
-    #   lag_var <- paste0(var,"_lag",abs(hr))
-    #   
-    #   ## calculate the n hour change
-    #   delta_val <- dat[,var] - lag_val
-    #   # delta_var <- paste0(var,"_ch",abs(hr))
-    #   
-    #   dat[,lag_var] <- lag_val
-    #   # var_val[,delta_var] <- delta_val
-    # }
-  }
+  # names(dat) <- tolower(names(dat))
+  # wx_calc_vars <- c("wspd","wdir_sin","vis","ceiling","ceiling_ln","clds_pct",
+  #                   # "temp","dewpt","rh",
+  #                   "wx_obscur","wx_precip","wx_convec","wx_other","wx_light","wx_heavy",
+  #                   "hrs_precip","hrs_obscur","hrs_convec","hrs_precip_daily","hrs_obscur_daily",
+  #                   "lifr","ifr","mvfr","vfr","hrs_lifr","hrs_ifr","hrs_mvfr","hrs_vfr",
+  #                   "hrs_lifr_daily","hrs_ifr_daily","hrs_mvfr_daily","hrs_vfr_daily"
+  # )
+  # for(var in wx_calc_vars){
+  #   # print(var)
+  #   ## calculate rolling min, max, avg values
+  #   temp_dat <- wx_calcs(dat, var)
+  #   # temp_dat$datetime <- as.character(temp_dat$datetime)
+  #   ## create lag variables
+  #   lag_vars <- names(temp_dat)[!names(temp_dat) %in% c("datetime")]
+  #   for(l_var in lag_vars){
+  #     temp_dat_lag <- wx_lags(temp_dat, l_var)
+  #     temp_dat_lag[,c("datetime", l_var)] <- NULL
+  #     temp_dat <- cbind(temp_dat, temp_dat_lag)
+  #     rm(temp_dat_lag)
+  #   }
+  #   temp_dat[,c(var, "datetime")] <- NULL
+  #   dat <- cbind(dat, temp_dat)  
+  #   rm(temp_dat, var)
+  #   
+  #   # ## just lags
+  #   # for(hr in c(seq(from = 1, to = 12, by = 1))){
+  #   #   ## calculate the lag
+  #   #   lag_val <- shift(x = dat[,var], n = hr, type ="lag")
+  #   #   lag_var <- paste0(var,"_lag",abs(hr))
+  #   #   
+  #   #   ## calculate the n hour change
+  #   #   delta_val <- dat[,var] - lag_val
+  #   #   # delta_var <- paste0(var,"_ch",abs(hr))
+  #   #   
+  #   #   dat[,lag_var] <- lag_val
+  #   #   # var_val[,delta_var] <- delta_val
+  #   # }
+  # }
   
   ## convert to local time
   ## create variable for each time zone

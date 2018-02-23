@@ -9,12 +9,12 @@
 
 print("----------------------------- BEGIN DATA PREP -----------------------------")
 Sys.setenv(TZ="America/New_York")
-source('/Users/jfinn/Google Drive/ADR AAR Model Build/2017 Model Re-Train/aspm_data/aspm_functions.R')
+source('aspm_functions.R')
 
 ################### input variables here
 
 user <- Sys.getenv("LOGNAME")
-airport <- "LGA"
+airport <- "SFO"
 icao <- paste0("K", airport)
 
 suppressPackageStartupMessages(library(stringr))
@@ -88,26 +88,25 @@ dat <- within(dat,{
 dat <- runway_config(dat, airport)
 
 ################### create lags, etc for relevant variables
-rwy_features <- names(dat)[which(grepl("rwycnfg",names(dat)) == T)]
-aspm_fcst_vars <- c(rwy_features,
-                    "oag_dep","oag_arr","etms_dep","etms_arr","dep_demand","arr_demand","dep_rate","arr_rate")
-for(var in aspm_fcst_vars){
-  temp_dat <- forecast_calcs(dat, var)
-  lag_vars <- names(temp_dat)[!names(temp_dat) %in% c("datetime")]
-  for(l_var in lag_vars){
-    temp_dat_lag <- forecast_lags(temp_dat, l_var)
-    temp_dat_lag[,l_var] <- NULL
-    temp_dat <- left_join(temp_dat, temp_dat_lag, by = "datetime")
-  }
-  temp_dat[,var] <- NULL
-  dat <- left_join(dat, temp_dat, by = "datetime")
-  rm(temp_dat, var)
-}
+# rwy_features <- names(dat)[which(grepl("rwycnfg",names(dat)) == T)]
+# aspm_fcst_vars <- c(rwy_features,
+#                     "oag_dep","oag_arr","etms_dep","etms_arr","dep_demand","arr_demand","dep_rate","arr_rate")
+# for(var in aspm_fcst_vars){
+#   temp_dat <- forecast_calcs(dat, var)
+#   lag_vars <- names(temp_dat)[!names(temp_dat) %in% c("datetime")]
+#   for(l_var in lag_vars){
+#     temp_dat_lag <- forecast_lags(temp_dat, l_var)
+#     temp_dat_lag[,l_var] <- NULL
+#     temp_dat <- left_join(temp_dat, temp_dat_lag, by = "datetime")
+#   }
+#   temp_dat[,var] <- NULL
+#   dat <- left_join(dat, temp_dat, by = "datetime")
+#   rm(temp_dat, var)
+# }
 
 ################### save ASPM dataset
 dat$dt <- as.character(dat$dt)
 dat[,c("yyyymm","daynum","hr_local","datetime", "datetime_num")] <- list(NULL)  # remove extraneous variables
 
-output_dir <- file.path('/Users/jfinn/Google Drive/ADR AAR Model Build/2017 Model Re-Train/aspm_data/processed')
-output_file <- file.path(output_dir, paste0(airport,'_ASPM_HR_201401_201709.Rdata'))
+output_file <- file.path("processed", paste0(airport,'_ASPM_HR_201401_201709.Rdata'))
 save(dat,file = output_file)

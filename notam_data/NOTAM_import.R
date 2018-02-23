@@ -277,6 +277,5 @@ rwy_closures$dt <- as.character(strptime(rwy_closures$datetime,format = "%Y-%m-%
 rwy_closures$datetime <- NULL
 
 ## save final dataset
-output_dir <- '/Users/jfinn/Google Drive/ADR AAR Model Build/2017 Model Re-Train/notam_data'
-output_file <- file.path(output_dir, 'processed', paste0(airport, '_NOTAM_HR_201401_201712.Rdata'))
+output_file <- file.path('processed', paste0(airport, '_NOTAM_HR_201401_201712.Rdata')) 
 save(rwy_closures,file = output_file)
