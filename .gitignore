@@ -55,5 +55,5 @@ metar_data/previous
 metar_data/processed
 metar_data/raw
 notam_data/processed
-1_data_prep/M1
 2_train/M*
+1_data_prep/M*

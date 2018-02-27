@@ -1,7 +1,7 @@
 ################################################################################
-## Name: TRAIN_BINARY.R
-## Description: Train xgb binary model for each high frequency rate (OVA)
-## Date: Feb 7, 2018
+## Name: TRAIN_OVA_BINARY_RF_SVM.R
+## Description: Train binary model for each high frequency rate (OVA) -- RF and SVM
+## Date: Feb 27, 2018
 ## Author: jaf
 ##
 ## Notes: 
@@ -9,23 +9,21 @@
 ### load libraries
 suppressMessages(library(caret))
 suppressMessages(library(plyr))
-suppressMessages(library(xgboost))
 suppressMessages(library(reshape2))
 suppressMessages(library(data.table))
 suppressMessages(library(doParallel))
 suppressMessages(library(tidyverse))
-suppressMessages(library(gridExtra))
 suppressMessages(library(mlbench))
 
 Sys.setenv(TZ="America/New_York")
 
 # source("custom_functions.R")
-source("TRAIN_FUNCTIONS.R")
+# source("CARET_TRAIN_FUNCTIONS.R")
 
 ################################################
 ## set model parameters
 
-RunBatch = 0
+RunBatch = 1
 
 if(RunBatch == 0){
   user <- 'jfinn'
@@ -108,11 +106,9 @@ if(!is.null(cat_vars)){
 ################################################ xgb - binary:logistic for each rate
 # r <- rates[1]
 for(r in rates){
-  ## get data
+  ## prepare data for feature selection
   Y_rate <- factor(Y[,r])
-  # Yt_rate <- factor(Yt[,r])
   X_rfe <- X
-  # Xt_rfe <- Xt
   
   ## set rfe controls
   rfe_control <- rfeControl(functions = rfFuncs
@@ -141,63 +137,93 @@ for(r in rates){
   
   ## save variables to file
   var_importance_file <- file.path(getwd(), "2_train", model, "variable_importance", paste0(paste(airport, rate, model, horizon, r, sep = "_"), ".txt"))
-  # write.table(var_importance, file = var_importance_file)
-  var_importance <- read.table(var_importance_file)
-  var_importance <- var_importance$x
+  write.table(var_importance, file = var_importance_file)
+  
+  ## read in variable importance (if already run)
+  # var_importance <- read.table(var_importance_file)
+  # var_importance <- var_importance$x
   
   ## subset predictors to most important
-  Y_rate <- Y[,response]
-  Yt_rate <- Yt[,response]
+  # Y_rate <- factor(Y[1:1000,r])
+  # Yt_rate <- factor(Yt[1:1000,r])
+  # X_rate <- X[1:1000,var_importance]
+  # Xt_rate <- Xt[1:1000,var_importance]
+  Y_rate <- factor(Y[,r])
+  Yt_rate <- factor(Yt[,r])
   X_rate <- X[,var_importance]
   Xt_rate <- Xt[,var_importance]
   
   ## model training
   ctrl <- trainControl(method = "repeatedcv"
-                       , repeats = 1	     
+                       , repeats = 5
                        , allowParallel = TRUE
                        # , sampling = "smote"
   )
-  ## train & tune the svm
+  ## train & tune the random forest
   cl <- makeCluster(7)
   registerDoParallel(cl)
   start_time <- Sys.time()
-  grid <- expand.grid(mtry = seq(5, 15, 5))
+  grid_rf <- expand.grid(mtry = seq(5, 50, 5))
   fit_rf <- train(
     y = Y_rate
     , x = X_rate
-    , method = "rf"   # Radial kernel
-    , tuneGrid = grid
+    , method = "rf"
+    # , tuneGrid = grid_rf
+    , tuneLength = 10
     , trControl=ctrl)
   stopCluster(cl)
   print(Sys.time() - start_time)
+  print(fit_rf)
+  fit_rf$results
+  plot(fit_rf)
   
-  print(fit)
-  fit$results
+  ## train & tune the support vector machine
+  cl <- makeCluster(7)
+  registerDoParallel(cl)
+  start_time <- Sys.time()
+  grid_svm <- expand.grid("C" = 2^c(0:5), "sigma" = 2^c(-25, -20, -15,-10, -5, 0))
+  fit_svm <- train(
+    y = Y_rate
+    , x = X_rate
+    , method = "svmRadialSigma"
+    # , tuneGrid = grid_svm
+    , tuneLength = 10
+    # , preProc = c("center","scale")
+    , trControl=ctrl)
+  stopCluster(cl)
+  print(Sys.time() - start_time)
+  print(fit_svm)
+  fit_svm$results
+  plot(fit_svm)
   
-  plot(fit)
-  
-  featureImp <- varImp(fit, scale=FALSE)
-  plot(featureImp)
-  
-  train_pred <- data.frame(
-    # "dt" = DTt$horizon_data.DTt,
-    "pred" = predict(fit$finalModel, X_rate),
-    # "act" = factor(Yt[,r], levels = c(0, 1), labels = c("nc","c"))
-    "act" = Y_rate
-  )
-  confusionMatrix(train_pred$pred, train_pred$act)
+  results <- resamples(list(RF = fit_rf, SVM = fit_svm))
+  results_summary <- summary(results)
+  ## boxplots of results
+  bwplot(results)
+  ## dot plots of results
+  dotplot(results)
   
   final_pred <- data.frame(
-    # "dt" = DTt$horizon_data.DTt,
-    "pred" = predict(fit$finalModel, Xt_rate),
-    # "act" = factor(Yt[,r], levels = c(0, 1), labels = c("nc","c"))
+    "pred_rf" = predict(fit_rf$finalModel, Xt_rate),
+    "pred_svm" = predict(fit_svm$finalModel, Xt_rate),
     "act" = Yt_rate
   )
-  confusionMatrix(final_pred$pred, final_pred$act)
+  confusionMatrix(final_pred$pred_rf, final_pred$act)
+  confusionMatrix(final_pred$pred_svm, final_pred$act)
 
   ## save final model parameters
-  filename <- file.path(dir,'results/xgbBinary_results.csv')
-  write.table(training_results
+  filename <- file.path(dir,"2_train",model,"rf/rf_results.csv")
+  write.table(fit_rf$results
+              , file = filename
+              , row.names=F
+              , eol = "\r"
+              , na="NA"
+              , append=T
+              , quote= FALSE
+              , sep=","
+              , col.names=F)
+  filename <- file.path(dir,"2_train",model,"svm/svm_results.csv")
+  write.table(fit_svm$results
               , file = filename
               , row.names=F
               , eol = "\r"
@@ -207,12 +233,11 @@ for(r in rates){
               , sep=","
               , col.names=F)
   
-  ## select final model: results with 1) smallest test / train difference and 2) test error > train error 
-  # output <- training_results %>% filter(iter == 10)
-  # output <- training_results %>% filter(diff <= 0) %>% filter(diff == max(diff))
-  output <- training_results %>% filter(diff <= 0) %>% filter(test_auc_mean == max(test_auc_mean))
-  
-  ## create and export final model
-  xgb_final(X, Xt, Y_rate, Yt_rate, featureSelect, output, 10, "binary:logistic", "auc")
+  ## save final models
+  rf_model_file <- file.path(dir,"2_train",model,"rf",paste0(airport,"_",rate,"_",model_num,"_",r,'_rf_model.rda'))
+  saveRDS(fit_rf$finalModel, file = rf_model_file)
+
+  svm_model_file <- file.path(dir,"2_train",model,"svm",paste0(airport,"_",rate,"_",model_num,"_",r,'_svm_model.rda'))
+  saveRDS(fit_svm$finalModel, file = svm_model_file)
 }
 
