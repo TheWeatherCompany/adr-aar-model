@@ -22,15 +22,15 @@ horizon_data_prep <- function(notam_data, aspm_data, metar_data, airport, respon
                                      ifelse(aspm_data_hz$rate_dt_pct <= -5, -1, 0))
   
   ## only keep data for selected rates
-  # rate_freq <- suppressMessages(read_csv("rate_frequency.csv"))
-  # rate_freq <- rate_freq %>% 
-  #   filter(locid == airport & rate == response & keep == 1)
-  # rates <- unique(rate_freq$value)
+  rate_freq <- suppressMessages(read_csv("1_data_prep/rate_frequency.csv"))
+  rate_freq <- rate_freq %>%
+    filter(locid == airport & rate == response & keep == 1)
+  rates <- unique(rate_freq$value)
   
   ## only keep partition rates
-  rate_part <- suppressMessages(read_csv("1_data_prep/rate_partition.csv"))
-  rate_part <- rate_part %>% filter(locid == airport & rate == response)
-  rates <- na.omit(as.numeric(unique(c(rate_part$left, rate_part$right))))
+  # rate_part <- suppressMessages(read_csv("1_data_prep/rate_partition.csv"))
+  # rate_part <- rate_part %>% filter(locid == airport & rate == response)
+  # rates <- na.omit(as.numeric(unique(c(rate_part$left, rate_part$right))))
   
   ## merge datasets by time
   horizon_data <- left_join(x = metar_data_hz, y = aspm_data_hz, by = "dt")

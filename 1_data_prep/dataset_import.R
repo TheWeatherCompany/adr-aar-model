@@ -53,15 +53,18 @@ format_metar <- function(metar_data, horizon){
   # if(horizon == "H1"){lag_features <- lag_features[(grepl(paste(c("_lag10","_lag11","_lag12"), collapse = "|"), lag_features) == F)]}
   
   ## only keep weather variables available in TAF forecast
-  wx_keep <- paste0(c("wspd","wdir","vis","ceiling","clds_pct","obscur","precip","convec","lifr","ifr","mvfr","vfr"), collapse = "|")
-  lag_features <- lag_features[(grepl(wx_keep, lag_features) == T)]
+  # wx_keep <- paste0(c("wspd","wdir","vis","ceiling","clds_pct","obscur","precip","convec","lifr","ifr","mvfr","vfr","flightrule"), collapse = "|")
+  # lag_features <- lag_features[(grepl(wx_keep, lag_features) == T)]
+  wx_rem <- c("station","qpf","rh","dewpt","temp")
+  lag_features <- lag_features[!lag_features %in% wx_rem]
   
   ## remove the max / min / avg
   # calc_rem <- paste0(c("_min","_max","_avg","_daily"), collapse = "|") 
   # lag_features <- lag_features[(grepl(calc_rem, lag_features) == T)]
   lag_features <- unique(lag_features)
 
-  metar_data_sub <- metar_data[,c("dt",lag_features)]
+  # metar_data_sub <- metar_data[,c("dt",lag_features)]
+  metar_data_sub <- metar_data[,c(lag_features)]
   return(metar_data_sub)
 }
 

@@ -116,7 +116,7 @@ for(r in rates){
                             , number = 5
                             , allowParallel = TRUE)
   ## recursive feature elimination w/ random forest function
-  cl <- makeCluster(7)
+  cl <- makeCluster(16)
   registerDoParallel(cl)
   start_time <- Sys.time()
   rfe_results <- rfe(x = X_rfe
@@ -178,7 +178,7 @@ for(r in rates){
   plot(fit_rf)
   
   ## train & tune the support vector machine
-  cl <- makeCluster(7)
+  cl <- makeCluster(16)
   registerDoParallel(cl)
   start_time <- Sys.time()
   grid_svm <- expand.grid("C" = 2^c(0:5), "sigma" = 2^c(-25, -20, -15,-10, -5, 0))
