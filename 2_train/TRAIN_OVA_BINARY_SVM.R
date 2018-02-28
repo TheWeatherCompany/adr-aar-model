@@ -1,26 +1,24 @@
 ################################################################################
-## Name: TRAIN_BINARY.R
-## Description: Train xgb binary model for each high frequency rate (OVA)
-## Date: Feb 7, 2018
+## Name: TRAIN_OVA_BINARY_RF_SVM.R
+## Description: Train binary model for each high frequency rate (OVA) -- SVM
+## Date: Feb 27, 2018
 ## Author: jaf
 ##
-## Notes: 
+## Notes: Feature engineering & processing specific to SVM
 ################################################################################
 ### load libraries
 suppressMessages(library(caret))
 suppressMessages(library(plyr))
-suppressMessages(library(xgboost))
 suppressMessages(library(reshape2))
 suppressMessages(library(data.table))
 suppressMessages(library(doParallel))
 suppressMessages(library(tidyverse))
-suppressMessages(library(gridExtra))
 suppressMessages(library(mlbench))
 
 Sys.setenv(TZ="America/New_York")
 
 # source("custom_functions.R")
-source("TRAIN_FUNCTIONS.R")
+# source("CARET_TRAIN_FUNCTIONS.R")
 
 ################################################
 ## set model parameters
@@ -77,124 +75,127 @@ DTt <- readRDS(file = DTt)
 rates <- names(Y)[!names(Y) %in% c(response,"rate_lag","rate_dt","rate_dt_pct","rate_change")]
 
 ## remove some vars
-X[,c("runway_lag1")] <- NULL
+rem_vars <- c("wxcodes","wdir","wdir_sin","ceiling","wx_light","wx_heavy","lifr","ifr","mvfr","vfr","runway_lag1"
+              ,"hr_local","weekday","month")
+X[,c(rem_vars)] <- NULL
+Xt[,c(rem_vars)] <- NULL
 
-## create dummies for categorical vars
-################### create dummies for categorical variable
-cat_vars <- sapply(X,FUN = is.numeric)
-cat_vars <- names(cat_vars[which(cat_vars == FALSE)])
-cat_vars <- cat_vars[!cat_vars %in% c('dt','datetime')] ## need to remove this variable
+################### categorical variable
+## for SVM -- factorize categorical variables into numeric
+X$wdir_cat <- as.numeric(factor(X$wdir_cat, levels = c("N","NE","E","SE","S","SW","W","NW"), labels = c(1:8)))
+X$flightrule <- as.numeric(factor(X$flightrule, levels = c("LIFR","IFR","MVFR","VFR"), labels = c(1:4)))
+X$ceilingflightrule <- as.numeric(factor(X$ceilingflightrule, levels = c("LIFR","IFR","MVFR","VFR"), labels = c(1:4)))
+X$visflightrule <- as.numeric(factor(X$visflightrule, levels = c("LIFR","IFR","MVFR","VFR"), labels = c(1:4)))
+X$wx_obscur <- as.numeric(X$wx_obscur)
+X$wx_precip <- as.numeric(X$wx_precip)
+X$wx_convec <- as.numeric(X$wx_convec)
+X$wx_other <- as.numeric(as.factor(X$wx_other))
 
-if(!is.null(cat_vars)){
-  dum_create <- dummyVars(time ~ ., data = X[,names(X) %in% c("time",cat_vars)])
-  dum_features <- data.frame(predict(dum_create, newdata = X))
-  names(dum_features) <- gsub("\\.","_",names(dum_features))
-  X <- data.frame(X, dum_features)
-  X <- X[-which(names(X) %in% c(cat_vars,"Y"))]
-}
+Xt$wdir_cat <- as.numeric(factor(Xt$wdir_cat, levels = c("N","NE","E","SE","S","SW","W","NW"), labels = c(1:8)))
+Xt$flightrule <- as.numeric(factor(Xt$flightrule, levels = c("LIFR","IFR","MVFR","VFR"), labels = c(1:4)))
+Xt$ceilingflightrule <- as.numeric(factor(Xt$ceilingflightrule, levels = c("LIFR","IFR","MVFR","VFR"), labels = c(1:4)))
+Xt$visflightrule <- as.numeric(factor(Xt$visflightrule, levels = c("LIFR","IFR","MVFR","VFR"), labels = c(1:4)))
+Xt$wx_obscur <- as.numeric(Xt$wx_obscur)
+Xt$wx_precip <- as.numeric(Xt$wx_precip)
+Xt$wx_convec <- as.numeric(Xt$wx_convec)
+Xt$wx_other <- as.numeric(as.factor(Xt$wx_other))
 
-cat_vars <- sapply(Xt,FUN = is.numeric)
-cat_vars <- names(cat_vars[which(cat_vars == FALSE)])
-cat_vars <- cat_vars[!cat_vars %in% c('dt','datetime')] ## need to remove this variable
+## pre-process -- center and scale
+preProc <- preProcess(X, method = c("scale", "center"))
+X <- predict(preProc, X)
+Xt <- predict(preProc, Xt)
 
-if(!is.null(cat_vars)){
-  dum_create <- dummyVars(time ~ ., data = Xt[,names(Xt) %in% c("time",cat_vars)])
-  dum_features <- data.frame(predict(dum_create, newdata = Xt))
-  names(dum_features) <- gsub("\\.","_",names(dum_features))
-  Xt <- data.frame(Xt, dum_features)
-  Xt <- Xt[-which(names(Xt) %in% c(cat_vars,"Y"))]
-}
+## remove features with near-zero variance
+# nzv <- as.data.frame(nearZeroVar(X,saveMetrics = TRUE))
+# nzv <- nzv[nzv$nzv == TRUE,]
+# nzv <- row.names(nzv)
+# print(nzv)
+# X[,c(nzv)] <- NULL
+# Xt[,c(nzv)] <- NULL
 
 ################################################ xgb - binary:logistic for each rate
 # r <- rates[1]
 for(r in rates){
+  ## prepare data for feature selection
+  Y_rate <- factor(Y[,r])
+  X_rfe <- X
   
-  ## feature selection -- recursive feature elimination
-  Y_fs <- factor(Y[,r])
-  Y_fs <- Y_fs[1:5000]
-  X_fs <- X[1:5000,]
-  fs_control <- rfeControl(functions = rfFuncs, method = "repeatedcv", number = 5)
-  fs_results <- rfe(x = X_fs, y = Y_fs, sizes = seq(from = 5, to = 50, by = 5), rfeControl = fs_control, seed = seed)
-  print(fs_results)
-  predictors(fs_results)
-  plot(fs_results, type=c("g", "o"))
+  ## set rfe controls
+  rfe_control <- rfeControl(functions = rfFuncs
+                            , method = "repeatedcv"
+                            , number = 5
+                            , allowParallel = TRUE)
+  ## recursive feature elimination w/ random forest function
+  cl <- makeCluster(16)
+  registerDoParallel(cl)
+  start_time <- Sys.time()
+  rfe_results <- rfe(x = X_rfe
+                     , y = Y_rate
+                     , sizes = seq(from = 5, to = 50, by = 5)
+                     , rfeControl = rfe_control
+                     , seed = seed)
+  stopCluster(cl)
+  print(Sys.time() - start_time)
+  
+  print(rfe_results)
+  rfe_results$results
+  predictors(rfe_results)
+  plot(rfe_results, type=c("g", "o"))
   
   ## select the most important features
-  var_importance <- predictors(fs_results)
+  var_importance <- predictors(rfe_results)
   
   ## save variables to file
   var_importance_file <- file.path(getwd(), "2_train", model, "variable_importance", paste0(paste(airport, rate, model, horizon, r, sep = "_"), ".txt"))
   write.table(var_importance, file = var_importance_file)
   
-  Y_rate <- factor(Y[,r], levels = c(0, 1), labels = c("no", "yes"))
-  Yt_rate <- factor(Yt[,r], levels = c(0, 1), labels = c("no", "yes"))
-  X_rate <- na.omit(X[,var_importance])
-  Xt_rate <- na.omit(Xt[,var_importance])
-  
-  preProc <- preProcess(X_rate, method = c("scale", "center"))
-  
-  train <- predict(preProc, X_rate)
-  train$rate <- Y_rate
-  test <- predict(preProc, Xt_rate)
-  test$rate <- Yt_rate
-  
+  ## subset predictors to most important
+  Y_rate <- factor(Y[,r])
+  Yt_rate <- factor(Yt[,r])
+  X_rate <- X[,var_importance]
+  Xt_rate <- Xt[,var_importance]
+
   ## model training
-  ctrl <- trainControl(method = "repeatedcv"                  # 10fold cross validation
-                       , repeats = 1	                        # do 5 repititions of cv
-                       # , summaryFunction = twoClassSummary	  # Use AUC to pick the best model
-                       , classProbs = TRUE
+  ctrl <- trainControl(method = "cv"
+                       , repeats = 5
                        , allowParallel = TRUE
-                       , sampling = "smote"
-                       # , summaryFunction = kss_metric
+                       # , sampling = "smote"
   )
-  ## train & tune the svm
+  ## train & tune the support vector machine
   cl <- makeCluster(7)
   registerDoParallel(cl)
   start_time <- Sys.time()
-  # grid_svm <- expand.grid("C" = 2^c(0:5), "sigma" = 2^c(-25, -20, -15,-10, -5, 0))
-  # grid_svm <- expand.grid("C" = 5, "sigma" = 2)
-  fit <- train(
-    # y = Y_rate
-    rate  ~ .
-    , data= test
-    # , x = X_rate
-    , method = "svmRadialSigma"   # Radial kernel
-    , tuneLength = 10					# 9 values of the cost function
-    # , preProc = c("center","scale")  # Center and scale data
-    # , metric="ROC"
+  ## define parameter tuning grid (or user tuneLenght = N)
+  grid_svm <- expand.grid("C" = 2^c(0:5), "sigma" = 2^c(-25, -20, -15,-10, -5, 0))
+  fit_svm <- train(
+    y = Y_rate
+    , x = X_rate
+    , method = "svmRadialSigma"
     # , tuneGrid = grid_svm
-    # , metric = c('KSS')
+    , tuneLength = 10
     , trControl=ctrl)
   stopCluster(cl)
   print(Sys.time() - start_time)
   
-  print(fit)
-  fit$results
+  ## review model results
+  print(fit_svm)
+  fit_svm$results
+  plot(fit_svm)
+  fit_varImp <- varImp(fit_svm, scale=FALSE)
+  plot(fit_varImp)
   
-  plot(fit)
+  final_pred <- cbind(Yt, Xt_rate)
+  final_pred <- na.omit(final_pred)
+  final_pred$pred <- predict(fit_svm$finalModel,  na.omit(Xt_rate))
+  # final_pred <- data.frame(
+  #   "pred_svm" = predict(fit_svm$finalModel, na.omit(Xt_rate)),
+  #   "act" = Yt_rate
+  # )
+  print(confusionMatrix(final_pred$pred, final_pred[,r]))
   
-  featureImp <- varImp(fit, scale=FALSE)
-  plot(featureImp)
-  
-  train_pred <- data.frame(
-    # "dt" = DTt$horizon_data.DTt,
-    "pred" = predict(fit$finalModel, X_rate),
-    # "act" = factor(Yt[,r], levels = c(0, 1), labels = c("nc","c"))
-    "act" = Y_rate
-  )
-  confusionMatrix(train_pred$pred, train_pred$act)
-  
-  final_pred <- data.frame(
-    # "dt" = DTt$horizon_data.DTt,
-    "pred" = predict(fit$finalModel, Xt_rate),
-    # "act" = factor(Yt[,r], levels = c(0, 1), labels = c("nc","c"))
-    "act" = Yt_rate
-  )
-  confusionMatrix(final_pred$pred, final_pred$act)
-
   ## save final model parameters
-  filename <- file.path(dir,'results/xgbBinary_results.csv')
-  write.table(training_results
+  filename <- file.path(dir,"2_train",model,"svm/svm_results.csv")
+  write.table(fit_svm$results
               , file = filename
               , row.names=F
               , eol = "\r"
@@ -203,12 +204,7 @@ for(r in rates){
               , quote= FALSE
               , sep=","
               , col.names=F)
-  
-  ## select final model: results with 1) smallest test / train difference and 2) test error > train error 
-  # output <- training_results %>% filter(iter == 10)
-  # output <- training_results %>% filter(diff <= 0) %>% filter(diff == max(diff))
-  output <- training_results %>% filter(diff <= 0) %>% filter(test_auc_mean == max(test_auc_mean))
-  
-  ## create and export final model
-  xgb_final(X, Xt, Y_rate, Yt_rate, featureSelect, output, 10, "binary:logistic", "auc")
+
+  svm_model_file <- file.path(dir,"2_train",model,"svm",paste0(airport,"_",rate,"_",model_num,"_",r,'_svm_model.rda'))
+  saveRDS(fit_svm$finalModel, file = svm_model_file)
 }
