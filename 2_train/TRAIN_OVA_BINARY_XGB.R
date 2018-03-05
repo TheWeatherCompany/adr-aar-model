@@ -9,7 +9,7 @@
 Sys.setenv(TZ="America/New_York")
 
 # source("custom_functions.R")
-source("TRAIN_FUNCTIONS.R")
+source("XGB_TRAIN_FUNCTIONS.R")
 
 ################################################
 ## set model parameters
@@ -48,19 +48,19 @@ seed <- 2187
 setwd("../")
 dir <- getwd()
 
-X <- file.path(dir,'datasets',paste0(airport,"_",rate,'_',model_num,'_X.Rds'))
+X <- file.path(file.path(dir,'1_data_prep',model),paste0(airport,"_",rate,'_',model_num,'_X.Rds'))
 X <- readRDS(file = X)
-Xt <- file.path(dir,'datasets',paste0(airport,"_",rate,'_',model_num,'_Xt.Rds'))
+Xt <- file.path(file.path(dir,'1_data_prep',model),paste0(airport,"_",rate,'_',model_num,'_Xt.Rds'))
 Xt <- readRDS(file = Xt)
   
-Y <- file.path(dir,'datasets',paste0(airport,"_",rate,'_',model_num,'_Y.Rds'))
+Y <- file.path(file.path(dir,'1_data_prep',model),paste0(airport,"_",rate,'_',model_num,'_Y.Rds'))
 Y <- readRDS(file = Y)
-Yt <- file.path(dir,'datasets',paste0(airport,"_",rate,'_',model_num,'_Yt.Rds'))
+Yt <- file.path(file.path(dir,'1_data_prep',model),paste0(airport,"_",rate,'_',model_num,'_Yt.Rds'))
 Yt <- readRDS(file = Yt)
   
-DT <- file.path(dir,'datasets',paste0(airport,"_",rate,'_',model_num,'_DT.Rds'))
+DT <- file.path(file.path(dir,'1_data_prep',model),paste0(airport,"_",rate,'_',model_num,'_DT.Rds'))
 DT <- readRDS(file = DT)
-DTt <- file.path(dir,'datasets',paste0(airport,"_",rate,'_',model_num,'_DTt.Rds'))
+DTt <- file.path(file.path(dir,'1_data_prep',model),paste0(airport,"_",rate,'_',model_num,'_DTt.Rds'))
 DTt <- readRDS(file = DTt)
 
 rates <- names(Y)[!names(Y) %in% c(response,"rate_lag","rate_dt","rate_dt_pct","rate_change")]

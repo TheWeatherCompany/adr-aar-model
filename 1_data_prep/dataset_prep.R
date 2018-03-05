@@ -46,8 +46,6 @@ print(airport)
 print(response)
 print(model)
 
-response <- tolower(response)
-rate <- ifelse(response == "dep_rate","ADR","AAR")
 setwd("../")
 
 ################### import dataset
@@ -56,6 +54,9 @@ metar_data <- import_metar(user, airport)
 aspm_data <- import_aspm(user, airport)
 
 ################### format datasets per horizon & output
+response <- tolower(response)
+rate <- ifelse(response == "dep_rate","ADR","AAR")
+
 for(horizon in horizons){
   print(horizon)
   ## run through data prep process for given horizon

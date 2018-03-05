@@ -108,11 +108,9 @@ if(!is.null(cat_vars)){
 ################################################ xgb - binary:logistic for each rate
 # r <- rates[1]
 for(r in rates){
-  ## get data
+  ## prepare data for feature selection
   Y_rate <- factor(Y[,r])
-  # Yt_rate <- factor(Yt[,r])
   X_rfe <- X
-  # Xt_rfe <- Xt
   
   ## set rfe controls
   rfe_control <- rfeControl(functions = rfFuncs
@@ -120,7 +118,7 @@ for(r in rates){
                             , number = 5
                             , allowParallel = TRUE)
   ## recursive feature elimination w/ random forest function
-  cl <- makeCluster(7)
+  cl <- makeCluster(16)
   registerDoParallel(cl)
   start_time <- Sys.time()
   rfe_results <- rfe(x = X_rfe
@@ -141,9 +139,11 @@ for(r in rates){
   
   ## save variables to file
   var_importance_file <- file.path(getwd(), "2_train", model, "variable_importance", paste0(paste(airport, rate, model, horizon, r, sep = "_"), ".txt"))
-  # write.table(var_importance, file = var_importance_file)
-  var_importance <- read.table(var_importance_file)
-  var_importance <- var_importance$x
+  write.table(var_importance, file = var_importance_file)
+  
+  ## import var_importance if already run
+  # var_importance <- read.table(var_importance_file)
+  # var_importance <- var_importance$x
   
   ## subset predictors to most important
   Y_rate <- Y[,response]

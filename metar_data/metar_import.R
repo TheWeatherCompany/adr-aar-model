@@ -14,7 +14,7 @@ start_date <- ISOdate(2014,1,1) #start date in year, month, day format
 end_date <- ISOdate(2017,7,1) #end date in year, month, day format
 input_network <- c("ASOS")
 input_state <- c("NY")
-input_faaid <- c("SFO")
+input_faaid <- c("LGA")
 
 ## download METAR data
 # metar_download_mesonet(start_date, end_date, input_network, input_state, input_faaid, output_dir)

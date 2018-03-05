@@ -44,6 +44,8 @@ keep <- c('LOCID'
           ,'OAG_ARR'
           ,'ETMS_DEP'
           ,'ETMS_ARR'
+          ,'DEP_CT'
+          ,'ARR_CT'
           ,'RUNWAY'
           ,'DEP_DEMAND'
           ,'ARR_DEMAND'
@@ -71,18 +73,18 @@ dat <- dat[order(dat$dt),]
 dat <- unique(dat)
 
 ################### arrival & departure estimated vs. demand ratio
-dat <- within(dat,{
-  arr_dm_et_ratio <- dat$etms_arr / dat$arr_demand
-  arr_dm_et_ratio[dat$etms_arr == 0 & dat$arr_demand == 0] <- 0
-  arr_dm_et_ratio[dat$etms_arr == 0 & dat$arr_demand != 0] <- 1
-  arr_dm_et_ratio[dat$etms_arr != 0 & dat$arr_demand == 0] <- 0
-})
-dat <- within(dat,{
-  dep_dm_et_ratio <- dat$etms_dep / dat$dep_demand
-  dep_dm_et_ratio[dat$etms_dep == 0 & dat$dep_demand == 0] <- 0
-  dep_dm_et_ratio[dat$etms_dep == 0 & dat$dep_demand != 0] <- 1
-  dep_dm_et_ratio[dat$etms_dep != 0 & dat$dep_demand == 0] <- 0
-})
+# dat <- within(dat,{
+#   arr_dm_et_ratio <- dat$etms_arr / dat$arr_demand
+#   arr_dm_et_ratio[dat$etms_arr == 0 & dat$arr_demand == 0] <- 0
+#   arr_dm_et_ratio[dat$etms_arr == 0 & dat$arr_demand != 0] <- 1
+#   arr_dm_et_ratio[dat$etms_arr != 0 & dat$arr_demand == 0] <- 0
+# })
+# dat <- within(dat,{
+#   dep_dm_et_ratio <- dat$etms_dep / dat$dep_demand
+#   dep_dm_et_ratio[dat$etms_dep == 0 & dat$dep_demand == 0] <- 0
+#   dep_dm_et_ratio[dat$etms_dep == 0 & dat$dep_demand != 0] <- 1
+#   dep_dm_et_ratio[dat$etms_dep != 0 & dat$dep_demand == 0] <- 0
+# })
 
 ################### clean up runway variable - create list of unique runways
 dat <- runway_config(dat, airport)

@@ -20,7 +20,7 @@ suppressPackageStartupMessages(library(tidyverse))
 ################### specify variables here
 
 user <- Sys.getenv("LOGNAME")
-airport <- "SFO"
+airport <- "LGA"
 
 ###################
 Sys.setenv(TZ="America/New_York")

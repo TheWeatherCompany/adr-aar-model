@@ -53,15 +53,18 @@ format_metar <- function(metar_data, horizon){
   # if(horizon == "H1"){lag_features <- lag_features[(grepl(paste(c("_lag10","_lag11","_lag12"), collapse = "|"), lag_features) == F)]}
   
   ## only keep weather variables available in TAF forecast
-  wx_keep <- paste0(c("wspd","wdir","vis","ceiling","clds_pct","obscur","precip","convec","lifr","ifr","mvfr","vfr"), collapse = "|")
-  lag_features <- lag_features[(grepl(wx_keep, lag_features) == T)]
+  # wx_keep <- paste0(c("wspd","wdir","vis","ceiling","clds_pct","obscur","precip","convec","lifr","ifr","mvfr","vfr","flightrule"), collapse = "|")
+  # lag_features <- lag_features[(grepl(wx_keep, lag_features) == T)]
+  wx_rem <- c("station","qpf","rh","dewpt","temp")
+  lag_features <- lag_features[!lag_features %in% wx_rem]
   
   ## remove the max / min / avg
   # calc_rem <- paste0(c("_min","_max","_avg","_daily"), collapse = "|") 
   # lag_features <- lag_features[(grepl(calc_rem, lag_features) == T)]
   lag_features <- unique(lag_features)
 
-  metar_data_sub <- metar_data[,c("dt",lag_features)]
+  # metar_data_sub <- metar_data[,c("dt",lag_features)]
+  metar_data_sub <- metar_data[,c(lag_features)]
   return(metar_data_sub)
 }
 
@@ -82,19 +85,31 @@ format_aspm <- function(aspm_data, horizon, response){
   h_num <- as.numeric(gsub("H","",horizon))
   ## for aspm -- remove lags that we will not have in real-time (less than horizon hour)
   features <- names(aspm_data)
-  aspm_data <- aspm_data[order(aspm_data$dt),]
+  temp_data <- aspm_data[order(aspm_data$dt),]
   
   ## create lags
-  lag_features <- features[!features %in% c("locid","dt","arr_demand", "dep_demand")]
+  lag_features <- features[!features %in% c("locid","dt","oag_dep","oag_arr")]
   for(var in lag_features){
-    lag_val <- shift(x = aspm_data[,var], n = h_num, type ="lag")
-    lag_var <- paste0(var,"_lag", h_num)
-    aspm_data[,lag_var] <- lag_val
+    if(var %in% c("arr_demand", "dep_demand")){
+      if(horizon == "H1"){
+        lag_val <- temp_data[,var]
+        lag_var <- var
+      }
+      if(horizon != "H1"){
+        lag_val <- shift(x = temp_data[,var], n = (h_num - 1), type ="lag")
+        lag_var <- paste0(var,"_lag", (h_num - 1))
+      }
+    }
+    if(!var %in% c("arr_demand", "dep_demand")){
+      lag_val <- shift(x = temp_data[,var], n = h_num, type ="lag")
+      lag_var <- paste0(var,"_lag", h_num)
+    }
+    temp_data[,lag_var] <- lag_val
     features <- c(features, lag_var)
     if(var != response){features <- features[features != var]}
   }
   
-  aspm_data_sub <- aspm_data[,c(features)]
+  aspm_data_sub <- temp_data[,c(features)]
   aspm_data_sub$locid <- NULL
   return(aspm_data_sub)
 }
