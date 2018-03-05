@@ -57,3 +57,5 @@ metar_data/raw
 notam_data/processed
 2_train/M*
 1_data_prep/M*
+
+2_train/SVM-RFE/
