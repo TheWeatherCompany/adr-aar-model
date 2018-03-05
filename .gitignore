@@ -59,3 +59,9 @@ notam_data/processed
 1_data_prep/M*
 
 2_train/SVM-RFE/
+
+2_train/TRAIN_OVA_BINARY_SVM RF.R
+
+2_train/dev/TRAIN_OVA_BINARY_SVM RF.R
+
+generate_train_script.R alias
