@@ -22,7 +22,7 @@ RunBatch = 0
 
 if(RunBatch == 0){
   user <- 'jfinn'
-  airport <- 'SFO'
+  airport <- 'LGA'
   response <- 'ARR_RATE'
   model <- 'M1'
   horizons <- paste0("H",c(1:12))
@@ -38,8 +38,8 @@ if(RunBatch == 1){
 }
 
 ###################
-source('dataset_import.R')
-source('horizon_format.R')
+source(file.path(model, 'dataset_import.R'))
+source(file.path(model, 'horizon_format.R'))
 
 print(user)
 print(airport)
@@ -47,6 +47,7 @@ print(response)
 print(model)
 
 setwd("../")
+dir <- getwd()
 
 ################### import dataset
 notam_data <- import_notam(user, airport)

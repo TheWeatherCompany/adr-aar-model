@@ -1,0 +1,291 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, echo=FALSE, warning=FALSE, message=FALSE}
+## load libraries
+suppressMessages(library(caret))
+suppressMessages(library(plyr))
+suppressMessages(library(gridExtra))
+suppressMessages(library(stringr))
+suppressMessages(library(xgboost))
+suppressMessages(library(reshape2))
+suppressMessages(library(plyr))
+suppressMessages(library(data.table))
+suppressMessages(library(verification))
+suppressMessages(library(ggplot2))
+suppressMessages(library(tidyverse))
+suppressMessages(library(doParallel))
+
+Sys.setenv(TZ="America/New_York")
+
+source("TEST_functions.R")
+```
+
+```{r parameters, echo=FALSE, warning=FALSE, message=FALSE}
+## set testing parameters & directories
+RunBatch = 0
+
+if(RunBatch == 0){
+  user <- 'jfinn'
+  airport <- 'LGA'
+  response <- "ARR_RATE"  # ADR or AAR
+  model <- c('M1')
+  horizons <- c("H1","H2","H3","H4","H5","H6")
+  # horizons <- c("H1","H2","H3","H4","H5","H6","H7","H8","H9","H10","H11","H12")
+}
+
+if(RunBatch == 1){
+  args <- commandArgs(trailingOnly = TRUE)
+  user <- args[1]
+  airport <- args[2]
+  response <- args[3]
+  model <- args[4]
+  test <- args[5]
+  horizons <- args[6:length(args)]
+}
+
+rate <- ifelse(response == "DEP_RATE","ADR","AAR")
+response <- tolower(response)
+
+print(airport)
+print(response)
+print(model)
+print(horizons)
+
+## set directories
+dir <- getwd()
+dir_new <- gsub("/3_test","",dir)
+
+model_dir <- file.path(dir_new, "2_train", model, "svm")
+dataset_dir <- file.path(dir_new, "1_data_prep", model)
+
+```
+
+# Binary Model Results
+
+```{r horizon_pred, echo=FALSE, warning=FALSE, message=FALSE}
+## horizon prediction and metric calculations
+binary_dat <- c()
+binary_rate_metrics <- c()
+binary_change_metrics <- c()
+for(h in horizons){
+  ## calculate over all metrics
+  metrics_dat <- binary_horizon_pred(dataset_dir, model_dir, airport, rate, model, h)
+  metrics_dat$horizon <- h
+  
+  ## calculate metrics on individual rates
+  # rate_metrics_dat <- rate_metrics(metrics_dat)
+  # rate_metrics_dat$horizon <- h
+  ## calculate metrics on change data
+  change_metrics_dat <- change_metrics(metrics_dat)
+  change_metrics_dat$horizon <- h
+  
+  binary_dat <- rbind(binary_dat, metrics_dat)
+  # binary_rate_metrics <- rbind(binary_rate_metrics, rate_metrics_dat)
+  binary_change_metrics <- rbind(binary_change_metrics, change_metrics_dat)
+  rm(rate_metrics_dat, change_metrics_dat, metrics, h, metrics_dat)
+}
+
+```
+
+
+```{r metrics_calc, echo=FALSE, warning=FALSE, message=FALSE}
+## metrics calculation
+names(binary_dat) <- gsub(response, "actual", names(binary_dat))
+model_metrics <- binary_dat %>%
+  select(horizon, actual, pred, act_change) %>%
+  mutate(
+    error = actual - pred,
+    error_2 = error^2,
+    APE = abs((pred - actual) / actual * 100),
+    ## correction for rate == 0
+    # APE = ifelse(actual == 0, predicted * 100, APE)
+    APE = ifelse(actual == 0, NA, APE)
+  ) %>%
+  group_by(horizon, act_change) %>%
+  mutate(
+    RMSE_delta = round(sqrt(mean(error_2,na.rm = T)), 2),
+    MAPE_delta = round(mean(APE,na.rm = T), 2)
+  ) %>%
+  ungroup() %>%
+  group_by(horizon) %>%
+  mutate(
+    RMSE = round(sqrt(mean(error_2,na.rm = T)), 2),
+    MAPE = round(mean(APE,na.rm = T), 2)
+  )
+# xgbTree.Metrics.all$Delta <- factor(xgbTree.Metrics.all$act.change,levels = c(-1,1,0),labels = c("Overall","Change","No Change"))
+# xgbTree.Metrics.all
+  
+## calculate metrics by each rate value
+rate_metrics <- model_metrics %>%
+  group_by(horizon,actual,act_change) %>%
+  summarize(
+    Frequency=length(actual)
+    , MAPE = mean(APE,na.rm = T)
+  ) %>%
+  mutate(
+    Delta = factor(act_change,levels = c(1, 0),labels = c("Change", "No Change"))
+    )
+
+```
+
+## Rate Metrics
+
+### Contingency Table -- Overall
+
+```{r rate_table_contigency, echo=FALSE,warning=FALSE,message=FALSE,fig.width=12}
+# binary_rate_metrics %>%
+#   mutate(
+#     Horizon = horizon,
+#     Hit = Hit_Overall,
+#     Miss = Miss_Overall
+#     ) %>%
+#   select(Horizon, Hit, Miss) %>%
+#   unique()
+
+```
+
+### Accuracy
+
+```{r rate_plot_metricsAll, echo=FALSE,warning=FALSE,message=FALSE,fig.width=12}
+# binary_rate_metrics %>%
+#   mutate(
+#     Horizon = as.numeric(gsub("H", "", horizon))
+#   ) %>%
+#   ungroup() %>%
+#   select(Horizon, Accuracy) %>%
+#   gather(Metric, Value, -Horizon) %>%
+#   unique() %>%
+#   ggplot(aes(x = Horizon, y = Value, colour = Metric)) +
+#   geom_point() + 
+#   geom_line() + 
+#   theme_bw() + theme(legend.position = "top") + 
+#   xlab("Horizon") + 
+#   ylab("Value") + 
+#   facet_grid(Metric~ .,scales = "free") +
+#   scale_x_continuous(breaks = seq(1,12,1))
+```
+
+### Contingency Table - By Rate
+
+```{r rate_table_contigency_all, echo=FALSE,warning=FALSE,message=FALSE,fig.width=12}
+# binary_rate_metrics %>%
+#   mutate(
+#     Horizon = horizon
+#     ) %>%
+#   select(Horizon, Rate, Hit, Miss) %>%
+#   unique() %>%
+#   data.frame()
+```
+
+### Precision & Recall
+
+```{r rate_plot_metrics_all, echo=FALSE,warning=FALSE,message=FALSE,fig.width=12}
+# binary_rate_metrics %>%
+#   mutate(
+#     Horizon = as.numeric(gsub("H", "", horizon))
+#   ) %>%
+#   ungroup() %>%
+#   select(Horizon, Rate, Precision, Recall) %>%
+#   gather(Metric, Value, -Horizon, -Rate) %>%
+#   unique() %>%
+#   ggplot(aes(x = Horizon, y = Value, colour = factor(Rate))) +
+#   geom_point() + 
+#   geom_line() + 
+#   theme_bw() + theme(legend.position = "top") + 
+#   xlab("Horizon") + 
+#   ylab("Value") + 
+#   facet_grid(Metric~ .,scales = "free") +
+#   scale_x_continuous(breaks = seq(1,12,1))
+```
+
+## Change Detection
+
+### Contingency Table
+
+```{r table_contigency, echo=FALSE,warning=FALSE,message=FALSE,fig.width=12}
+binary_change_metrics %>%
+  mutate(Horizon = horizon) %>%
+  select(Horizon, Hit, Miss, FalseAlarm, CorrectNormal)
+
+```
+
+### Skill Scores
+
+```{r plot_skillscores, echo=FALSE,warning=FALSE,message=FALSE,fig.width=12}
+binary_change_metrics %>%
+  mutate(
+    TOT = Miss + Hit + CorrectNormal + FalseAlarm,
+    EDS = (2 * log10(((Hit + Miss) / TOT))) / (log10(Hit / TOT)) - 1,
+    Horizon = as.numeric(gsub("H","",horizon))
+  ) %>%
+  select(Horizon, KSS, EDS) %>%
+  gather(Score, Value, -Horizon) %>%
+  ggplot(aes(x = Horizon, y = Value, colour = Score)) +
+  geom_point() + 
+  geom_line() + 
+  theme_bw() + theme(legend.position = "top") + 
+  xlab("Horizon") + 
+  ylab("Value") + 
+  # facet_grid(~ Score,scales = "free") +
+  scale_x_continuous(breaks = seq(1,12,1))
+
+```
+
+### Accuracy
+
+```{r plot_metricsAll, echo=FALSE,warning=FALSE,message=FALSE,fig.width=12}
+binary_change_metrics %>%
+  mutate(
+    Horizon = as.numeric(gsub("H", "", horizon))
+  ) %>%
+  ungroup() %>%
+  select(Horizon, Accuracy, Sensitivity, Specificity) %>%
+  gather(Metric, Value, -Horizon) %>%
+  unique() %>%
+  ggplot(aes(x = Horizon, y = Value, colour = Metric)) +
+  geom_point() + 
+  geom_line() + 
+  theme_bw() + theme(legend.position = "top") + 
+  xlab("Horizon") + 
+  ylab("Value") + 
+  facet_grid(Metric~ .,scales = "free") +
+  scale_x_continuous(breaks = seq(1,12,1))
+
+```
+
+## Rate Metrics - Horizon Analysis
+
+```{r plot_metricsHorizon, echo=FALSE,warning=FALSE,message=FALSE,fig.width=12}
+for(h in horizons){
+  print(h)
+
+  h_dat <- model_metrics %>% filter(horizon == h)
+  print(table(h_dat$actual, h_dat$pred))
+
+  p4 <- model_metrics %>%
+    filter(horizon == h) %>% na.omit() %>%
+    mutate(
+      Delta = factor(act_change, levels = c(1, 0), labels = c("Change", "No Change"))
+    ) %>%
+    group_by(Delta, actual) %>%
+    summarise(
+      Frequency = length(actual),
+      MAPE = mean(APE)
+    ) %>%
+    ggplot(aes(x = factor(actual), y = Frequency, fill = Delta)) + 
+    geom_bar(stat = "identity",position = "dodge") + 
+    theme_bw() + 
+    xlab("Rate") + ylab("Frequency") + 
+    ggtitle("Rate") + theme(legend.position = "right")
+  print(p4)
+}
+
+```
+

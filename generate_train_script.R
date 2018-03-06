@@ -22,7 +22,7 @@ ex_num <- 'M1'
 airports <- c("SFO","LGA")
 horizons <- c("H1","H2","H3","H4","H5","H6","H7","H8","H9","H10","H11","H12")
 rates <- c("ARR_RATE","DEP_RATE")
-scripts <- c("TRAIN_OVA_BINARY_SVM_SVM_RFE.R")
+scripts <- c("TRAIN_OVA_BINARY_SVM_RF_RFE.R")
 
 train <- merge(airports,rates)
 names(train) <- c("airport","rate")

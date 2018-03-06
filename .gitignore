@@ -56,7 +56,6 @@ metar_data/processed
 metar_data/raw
 notam_data/processed
 2_train/M*
-1_data_prep/M*
 
 2_train/SVM-RFE/
 
@@ -65,3 +64,7 @@ notam_data/processed
 2_train/dev/TRAIN_OVA_BINARY_SVM RF.R
 
 generate_train_script.R alias
+
+*.boxnote
+
+*.Rds
