@@ -23,8 +23,8 @@ RunBatch = 0
 if(RunBatch == 0){
   user <- 'jfinn'
   airport <- 'LGA'
-  response <- 'ARR_RATE'
-  model <- 'M1'
+  response <- 'DEP_RATE'
+  model <- 'M2'
   horizons <- paste0("H",c(1:12))
 }
 

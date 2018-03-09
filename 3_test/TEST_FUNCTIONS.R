@@ -70,18 +70,19 @@ rate_metrics <- function(data){
 binary_rate_pred <- function(r, Xt){
   model_num <- paste0(model,"_",h)
   ## load important features & subset
-  featureSelect_file <- file.path(dir_new,"2_train", model, "variable_importance",paste0(paste(airport, rate, model_num, r, sep = "_"),".txt"))
+  featureSelect_file <- file.path(model_dir, "variable_importance",paste0(paste(airport, rate, model_num, r, sep = "_"),".txt"))
   featureSelect <- read.table(featureSelect_file)
   featureSelect <- as.character(featureSelect$x)
   Xt_R <- Xt[which(names(Xt) %in% featureSelect)]
   # Xt_R <- as.matrix(Xt_R)
   
   ## load model
-  svmModel_file <- file.path(model_dir,paste(airport, rate, model_num, r, 'svm_model.rda',sep = "_"))
-  svmModel <- readRDS(svmModel_file)
+  fitModel_file <- file.path(model_dir,paste(airport, rate, model_num, r, model_type, 'model.rda',sep = "_"))
+  fitModel <- readRDS(fitModel_file)
   
   ## generate predictions
-  temp_pred <- predict.train(object = svmModel,newdata = Xt_R, type = "prob")
+  temp_pred <- predict.train(object = fitModel,newdata = Xt_R, type = "prob")
+  # temp_pred <- predict.train(object = fitModel,newdata = Xt_R)
   temp_pred <- data.frame(temp_pred[,"yes"])
   names(temp_pred) <- paste0(r,"_prob")
   return(temp_pred)
@@ -92,65 +93,11 @@ binary_horizon_pred <- function(dataset_dir, model_dir, airport, rate, model, h)
   model_num <- paste0(model,"_",h)
   
   ## load testing data
-  DT  <- readRDS(file.path(dataset_dir,paste(airport, rate, model_num, 'DT.Rds',sep = "_")))
   DTt  <- readRDS(file.path(dataset_dir,paste(airport, rate, model_num, 'DTt.Rds',sep = "_")))
-  names(DT) <- "dt"
   names(DTt) <- "dt"
-  Y  <- readRDS(file.path(dataset_dir,paste(airport, rate, model_num, 'Y.Rds',sep = "_")))
   Yt  <- readRDS(file.path(dataset_dir,paste(airport, rate, model_num, 'Yt.Rds',sep = "_")))
   # names(Yt) <- "actual"
-  X  <- readRDS(file.path(dataset_dir,paste(airport, rate, model_num, 'X.Rds',sep = "_")))
   Xt  <- readRDS(file.path(dataset_dir,paste(airport, rate, model_num, 'Xt.Rds',sep = "_")))
-  
-  ## remove some vars
-  rem_vars <- c("wxcodes","wdir","wdir_sin","ceiling","wx_light","wx_heavy","wx_other","lifr","ifr","mvfr","vfr",
-                paste0("runway_lag",gsub("H","",h)),"time")
-  X[,c(rem_vars)] <- NULL
-  Xt[,c(rem_vars)] <- NULL
-  
-  ## for SVM -- factorize categorical variables into numeric
-  X$wdir_cat <- as.numeric(factor(X$wdir_cat, levels = c("N","NE","E","SE","S","SW","W","NW"), labels = c(1:8)))
-  X$flightrule <- as.numeric(factor(X$flightrule, levels = c("LIFR","IFR","MVFR","VFR"), labels = c(1:4)))
-  X$ceilingflightrule <- as.numeric(factor(X$ceilingflightrule, levels = c("LIFR","IFR","MVFR","VFR"), labels = c(1:4)))
-  X$visflightrule <- as.numeric(factor(X$visflightrule, levels = c("LIFR","IFR","MVFR","VFR"), labels = c(1:4)))
-  X$wx_obscur <- as.numeric(as.character(X$wx_obscur))
-  X$wx_precip <- as.numeric(as.character(X$wx_precip))
-  X$wx_convec <- as.numeric(as.character(X$wx_convec))
-  # X$wx_other <- as.numeric(X$wx_other)
-  X$hr_local <- as.numeric(factor(X$hr_local, levels = c("00","01","02","03","04","05","06","07","08","09","10","11","12",
-                                                         "13","14","15","16","17","18","19","20","21","22","23"),labels = c(0:23)))
-  X$month<- as.numeric(factor(X$month, levels = c("01","02","03","04","05","06","07","08","09","10","11","12"), labels = c(0:11)))
-  X$weekday <- as.numeric(factor(X$weekday, levels = c("Mon","Tue","Wed","Thu","Fri","Sat","Sun"), labels = c(0:6)))
-  # X$hr_local <- sin(pi * ((360 / 24) * X$hr_local) / 180)
-  # X$month <- sin(pi * ((360 / 12) * X$month) / 180)
-  # X$weekday <- sin(pi * ((360 / 7) * X$weekday) / 180)
-  # cat_vars <- names(X)[which(grepl("rwycnfg", names(X)) == T)]
-  # cat_vars <- c(cat_vars, "wx_obscur", "wx_precip", "wx_convec", "wx_other")
-  # for(var in cat_vars){X[,var] <- ifelse(X[var] == 0, -1, 1)}
-  
-  Xt$wdir_cat <- as.numeric(factor(Xt$wdir_cat, levels = c("N","NE","E","SE","S","SW","W","NW"), labels = c(1:8)))
-  Xt$flightrule <- as.numeric(factor(Xt$flightrule, levels = c("LIFR","IFR","MVFR","VFR"), labels = c(1:4)))
-  Xt$ceilingflightrule <- as.numeric(factor(Xt$ceilingflightrule, levels = c("LIFR","IFR","MVFR","VFR"), labels = c(1:4)))
-  Xt$visflightrule <- as.numeric(factor(Xt$visflightrule, levels = c("LIFR","IFR","MVFR","VFR"), labels = c(1:4)))
-  Xt$wx_obscur <- as.numeric(as.character(Xt$wx_obscur))
-  Xt$wx_precip <- as.numeric(as.character(Xt$wx_precip))
-  Xt$wx_convec <- as.numeric(as.character(Xt$wx_convec))
-  # Xt$wx_other <- as.numeric(Xt$wx_other)
-  Xt$hr_local <- as.numeric(factor(Xt$hr_local, levels = c("00","01","02","03","04","05","06","07","08","09","10","11","12",
-                                                           "13","14","15","16","17","18","19","20","21","22","23"),labels = c(0:23)))
-  Xt$month<- as.numeric(factor(Xt$month, levels = c("01","02","03","04","05","06","07","08","09","10","11","12"), labels = c(0:11)))
-  Xt$weekday <- as.numeric(factor(Xt$weekday, levels = c("Mon","Tue","Wed","Thu","Fri","Sat","Sun"), labels = c(0:6)))
-  # Xt$hr_local <- sin(pi * ((360 / 24) * Xt$hr_local) / 180)
-  # Xt$month <- sin(pi * ((360 / 12) * Xt$month) / 180)
-  # Xt$weekday <- sin(pi * ((360 / 7) * Xt$weekday) / 180)
-  # cat_vars <- names(Xt)[which(grepl("rwycnfg", names(Xt)) == T)]
-  # cat_vars <- c(cat_vars, "wx_obscur", "wx_precip", "wx_convec", "wx_other")
-  # for(var in cat_vars){Xt[,var] <- ifelse(Xt[var] == 0, -1, 1)}
-  
-  ## pre-process -- center and scale
-  preProc <- preProcess(X, method = c("scale", "center"))
-  X <- predict(preProc, X)
-  Xt <- predict(preProc, Xt)
   
   rates <- names(Yt)[!names(Yt) %in% c(response,"rate_lag","rate_dt","rate_dt_pct","rate_change")]
   for(r in rates){
@@ -168,6 +115,7 @@ binary_horizon_pred <- function(dataset_dir, model_dir, airport, rate, model, h)
     group_by(rowid) %>%
     mutate(max_pred = max(pred, na.rm = T))
   pred_max <- pred_max[which(pred_max$max_pred == pred_max$pred),]
+  pred_max <- pred_max %>% group_by(rowid) %>% slice(1)
   pred_max$pred <- as.numeric(gsub(paste(c("rate_","_prob"),collapse = "|"),"",pred_max$rate))
   pred_max <- pred_max[,c("rowid","pred")]
   
@@ -204,7 +152,7 @@ binary_horizon_pred <- function(dataset_dir, model_dir, airport, rate, model, h)
   metrics_miss <- metrics_miss$dt
   
   metrics_dat$pred_change_rev <- metrics_dat$pred_change
-  # for changes that we missed, check the previous and following hour to see if the change was captured later
+  # ## for changes that we missed, check the previous and following hour to see if the change was captured later
   # for(m in metrics_miss){
   #   temp <- metrics_dat[which(metrics_dat$dt %in% c(m, m+3600, m-3600)),]
   #   if(nrow(temp) != 0){
@@ -219,7 +167,7 @@ binary_horizon_pred <- function(dataset_dir, model_dir, airport, rate, model, h)
   #     }
   #   }
   # }
-  confusionMatrix(metrics_dat$pred_change_rev, metrics_dat$act_change)
+  # confusionMatrix(metrics_dat$pred_change_rev, metrics_dat$act_change)
   
   metrics_dat <- metrics_dat %>% data.frame()
   metrics_dat <-  within(metrics_dat,{
@@ -248,6 +196,11 @@ binary_horizon_pred_Xt <- function(dataset_dir, model_dir, airport, rate, model,
   # names(Yt) <- "actual"
   Xt  <- readRDS(file.path(dataset_dir,paste(airport, rate, model_num, 'Xt.Rds',sep = "_")))
   
+  ## create binary change indicator
+  Yt$pos <- ifelse(Yt$rate_change == 1, 1, 0)
+  Yt$neg <- ifelse(Yt$rate_change == -1, 1, 0)
+  Yt$change <- ifelse(Yt$rate_change == 0, 0, 1)
+  
   rates <- names(Yt)[!names(Yt) %in% c(response,"rate_lag","rate_dt","rate_dt_pct","rate_change")]
   for(r in rates){
     temp_pred <- binary_rate_pred(r, Xt)
@@ -260,6 +213,7 @@ binary_horizon_pred_Xt <- function(dataset_dir, model_dir, airport, rate, model,
   
   ## determine predicted rate based on max probability
   pred_max <- pred %>%
+    select(-pos_prob, -neg_prob, -change_prob) %>%
     gather(rate, pred, -rowid) %>%
     group_by(rowid) %>%
     mutate(max_pred = max(pred, na.rm = T))
@@ -299,7 +253,7 @@ binary_horizon_pred_Xt <- function(dataset_dir, model_dir, airport, rate, model,
   metrics_miss <- metrics_miss$dt
   
   metrics_dat$pred_change_rev <- metrics_dat$pred_change
-  # for changes that we missed, check the previous and following hour to see if the change was captured later
+  ## for changes that we missed, check the previous and following hour to see if the change was captured later
   # for(m in metrics_miss){
   #   temp <- metrics_dat[which(metrics_dat$dt %in% c(m, m+3600, m-3600)),]
   #   if(nrow(temp) != 0){

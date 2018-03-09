@@ -66,7 +66,7 @@ dat$datetime <- paste0(dat$yyyymm,str_pad(dat$daynum, 2, pad = "0")," ",str_pad(
 dat$datetime <- as.POSIXct(strptime(x = dat$datetime,format = "%Y%m%d %H", tz = "UTC"))
 dat$datetime_num <- as.numeric(dat$datetime)
 ## add in adjustment to convert from local time to UTC
-dat$datetime_num <- dat$datetime_num + (3600 * airport_tz_adj)
+dat$datetime_num <- dat$datetime_num - (3600 * airport_tz_adj)
 dat$dt <- as.POSIXct(dat$datetime_num,origin = "1970-01-01", tz = "UTC")
 
 dat <- dat[order(dat$dt),]

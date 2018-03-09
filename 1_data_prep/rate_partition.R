@@ -25,7 +25,7 @@ hrly_dat$LOCID <- as.character(hrly_dat$LOCID)
 hrly_dat$LOCID <- gsub(" ","",hrly_dat$LOCID)
 
 ################### data partition
-a <- "SFO"
+a <- "LGA"
 response <- "arr_rate"
 
 ## get the local time zone
@@ -48,8 +48,8 @@ rate_freq <- dat %>%
   ) %>%
   ungroup() %>%
   arrange(desc(PCT)) %>%
-  group_by(RATE) %>%
-  head(6)
+  group_by(RATE)
+  # head(6)
   # filter(PCT >= 5)
 rate_freq <- unique(rate_freq[which(rate_freq$RATE == toupper(response)),])
 rate_freq <- rate_freq$VALUE
@@ -66,7 +66,7 @@ dat$datetime_num <- dat$datetime_num + (3600 * airport_tz_adj)
 dat$dt <- as.POSIXct(dat$datetime_num,origin = "1970-01-01", tz = "UTC")
 dat <- dat[order(dat$dt),]
 
-rate_cluster <- kmeans(dat[,response], 2)
+rate_cluster <- kmeans(dat[,response], centers = 5)
 rate_cluster
 tidy(rate_cluster)
 dat$cluster <- rate_cluster$cluster

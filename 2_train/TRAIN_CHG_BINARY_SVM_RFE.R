@@ -128,10 +128,10 @@ write.table(var_importance, file = var_importance_file)
 ## subset predictors to most important
 Y_rate <- factor(Y[,"change"], levels = c("0", "1"), labels = c("no_change", "change"))
 X_rate <- X[,var_importance]
-Y_rate <- Y_rate[1:1000]
-X_rate <- X_rate[1:1000,]
+# Y_rate <- Y_rate[1:1000]
+# X_rate <- X_rate[1:1000,]
 
-Yt_rate <- factor(Yt[,r], levels = c("0", "1"), labels = c("no_change", "change"))
+Yt_rate <- factor(Yt[,"change"], levels = c("0", "1"), labels = c("no_change", "change"))
 Xt_rate <- Xt[,var_importance]
 
 ## set train control

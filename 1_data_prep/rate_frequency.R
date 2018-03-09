@@ -34,20 +34,22 @@ rate_freq <- dat %>%
   mutate(
     TOTAL = sum(FREQ),
     PCT = FREQ / TOTAL * 100,
-    KEEP = ifelse(PCT >= 1, 1, 0)
+    KEEP = ifelse(PCT >= 10, 1, 0)
   ) %>%
   ungroup()
 
 ## export frequency plots
 for(a in airports){
   p1 <- rate_freq %>%
-    filter(LOCID == a & PCT > 1) %>%
+    filter(LOCID == a 
+           # & PCT > 1
+           ) %>%
     ggplot(aes(x = factor(VALUE), y = PCT)) +
       geom_bar(position = "dodge", stat = "identity") +
       facet_grid(~ RATE, scales = "free") +
       theme_bw()
   plot_file <- file.path(getwd(), "rate_plots", paste0(a, ".png"))
-  dev.copy(png, plot_file)
+  dev.copy(png, plot_file, width = 800, height = 600)
   plot(p1)
   dev.off()
   rm(p1)
