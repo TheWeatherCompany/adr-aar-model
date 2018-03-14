@@ -89,11 +89,14 @@ metar_process <- function(dat){
                                ifelse(dat$station == "DFW", 30000, 25000)),
                         dat$ceiling)
   
+  ## create date / time variables
+  dat$datetime <- as.POSIXct(strptime(paste(dat$date,dat$hour),format = "%Y-%m-%d %H",tz = "UTC"))
   ## remove missing observations
   dat <- dat[which(!is.na(dat$temp) & !is.na(dat$mslp)),]
+  dat <- dat[!duplicated(dat$datetime),]
   ## don't need to take hourly average, etc -- just remove non-full synoptic observations
   dat <- dat %>%
-    select(date, hour, station, wxcodes,
+    select(datetime, date, hour, station, wxcodes,
            clds_pct, wdir, wdir_sin, wspd, vis, ceiling,
            qpf, rh, dewpt, temp
     ) %>%
@@ -170,8 +173,6 @@ metar_process <- function(dat){
   dat$wx_heavy <- 0
   dat$wx_heavy[grepl('\\+', dat$wxcodes)] <- 1
   
-  dat$datetime <- as.POSIXct(strptime(paste(dat$date,dat$hour),format = "%Y-%m-%d %H",tz = "UTC"))
-  
   ##################################### calculate the cumulative hours of weather phenomenon
   setDT(dat)[, hrs_precip := seq_len(.N), by = list(wx_precip, cumsum(wx_precip == 0L))]
   setDT(dat)[, hrs_obscur := seq_len(.N), by = list(wx_obscur, cumsum(wx_obscur == 0L))]
@@ -221,12 +222,11 @@ metar_process <- function(dat){
     ) %>%
     ungroup()
   
-  ## create date / time variables
-  dat$date <- NULL
-  dat$hour <- NULL
   
   ##################################### lags & changes
   ## make sure we have all time periods -- fill in missing gaps
+  dat$date <- NULL
+  dat$hour <- NULL
   dat <- dat %>% arrange(datetime)
   datetime <- seq(from = min(dat$datetime), to = max(dat$datetime), by = "hour")
   datetime <- data.frame(datetime)

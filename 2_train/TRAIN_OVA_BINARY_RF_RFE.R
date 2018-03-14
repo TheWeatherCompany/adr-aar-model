@@ -1,13 +1,9 @@
 ################################################################################
 ## Name: TRAIN_OVA_BINARY_SVM.R
-## Description: Train binary model for each high frequency rate (OVA) -- SVM
-## Date: Feb 27, 2018
+## Description: Train binary model for each high frequency rate (OVA) -- RF
+## Date: Mar 12, 2018
 ## Author: jaf
 ##
-## Notes: Feature engineering & processing specific to SVM
-##        Categorical variables converted to numeric (ordinal)
-##        Binary variables == 0 or 1
-##        All features centered & scaled
 ################################################################################
 ### load libraries
 suppressMessages(library(caret))
@@ -26,13 +22,13 @@ dir <- getwd()
 ################################################
 ## set model parameters
 
-RunBatch = 1
+RunBatch = 0
 
 if(RunBatch == 0){
   user <- 'jfinn'
-  airport <- 'SFO'
+  airport <- 'LGA'
   response <- 'ARR_RATE'
-  model <- 'M1'
+  model <- 'M2'
   horizon <- 'H1'
 }
 
@@ -75,20 +71,33 @@ DTt <- readRDS(file = DTt)
 
 rates <- names(Y)[!names(Y) %in% c(response,"rate_lag","rate_dt","rate_dt_pct","rate_change")]
 print(rates)
-
+              
 ################################################ SVM -- RFE with random forest
-# r <- rates[2]
+r <- rates[1]
 for(r in rates){
   print(r)
+  
   ## prepare data for feature selection
-  Y_rfe <- factor(Y[,r])
+  Y_rfe <- factor(Y[,r], levels = c("0", "1"), labels = c("no", "yes"))
   X_rfe <- X
+  
+  ## identify changes -- only select those that include the rate being modeled
+  r_num <- as.numeric(gsub("rate_","",r))
+  Y$change <- ifelse((Y$rate_change == 1 | Y$rate_change == -1) & (Y[,response] == r_num | Y$rate_lag == r_num), 1, 0)
+  Yt$change <- ifelse((Yt$rate_change == 1 | Yt$rate_change == -1) & (Yt[,response] == r_num | Yt$rate_lag == r_num), 1, 0)
+  change <- sum(Y$change)
+  no_change <- nrow(Y) - sum(Y$change)
+  ratio <- change / nrow(Y)
+  Y$change <- factor(Y$change, levels = c(0, 1), labels = c("no_change","change"))
+  Yt$change <- factor(Yt$change, levels = c(0, 1), labels = c("no_change","change"))
+  
+  ## weight vector
+  model_weights <- ifelse(Y$change == "no_change", 1, 1 / ratio * 10)
 
-  ## set rfe controls
+  ## set rfe controls -- 5-fold cross-validation
   rfe_control <- rfeControl(functions = rfFuncs
                             , method = "cv"
                             , number = 5
-                            # , repeats = 3
                             , allowParallel = TRUE)
   ## recursive feature elimination w/ random forest function
   cl <- makeCluster(detectCores())
@@ -99,6 +108,7 @@ for(r in rates){
                      , scale = FALSE
                      , sizes = seq(from = 5, to = 30, by = 5)
                      , rfeControl = rfe_control
+                     , weights = model_weights
                      , seed = seed)
   stopCluster(cl)
   print(Sys.time() - start_time)
@@ -107,53 +117,49 @@ for(r in rates){
   rfe_results$results
   predictors(rfe_results)
   plot(rfe_results, type=c("g", "o"))
-  # rfe_results$fit$importance
-  
+
   ## select the most important features
   var_importance <- predictors(rfe_results)
   ## if the model selects all features -- just subset the top 30
   if(length(var_importance) == ncol(X_rfe)){
     selectedVars <- rfe_results$variables
-    var_importance <- rfe_results$control$functions$selectVar(selectedVars, 30)
+    var_importance <- rfe_results$control$functions$selectVar(selectedVars, 15)
   }
-  
+
   ## save variables to file
   var_importance_file <- file.path(getwd(), "2_train", model, "rf/variable_importance", paste0(paste(airport, rate, model, horizon, r, sep = "_"), ".txt"))
   write.table(var_importance, file = var_importance_file)
 
+  ## set train control -- 5-fold cross validation
+  ctrl <- trainControl(method = "cv"
+                       , number = 5
+                       , allowParallel = TRUE
+                       , classProbs =  TRUE
+  )
+  
   ## subset predictors to most important
   Y_rate <- factor(Y[,r], levels = c("0", "1"), labels = c("no", "yes"))
   X_rate <- X[,var_importance]
   
-  ## set train control
-  ctrl <- trainControl(method = "cv"
-                       , number = 10
-                       # , repeats = 5
-                       , allowParallel = TRUE
-                       # , sampling = "up"
-                       , classProbs =  TRUE
-                       # , summaryFunction = twoClassSummary
-  )
   ## tuning grid
-  mtry <- seq(from = 5, to = 50, by = 5)
+  mtry <- seq(from = 5, to = 30, by = 5)
   tunegrid <- expand.grid(.mtry=mtry)
-  ## train & tune the support vector machine
+  ## train & tune the random forest
   cl <- makeCluster(detectCores())
   registerDoParallel(cl)
   start_time <- Sys.time()
   fit <- train(
     y = Y_rate
     , x = X_rate
-    # , method = "svmRadialSigma"
     , method = "rf"
     , tuneGrid = tunegrid
-    # , tuneLength = 10
     , trControl = ctrl
+    , weights = model_weights
     , seed = seed
   )
   stopCluster(cl)
   print(Sys.time() - start_time)
-
+  
   ## review model results
   print(fit)
   fit$results
@@ -161,16 +167,41 @@ for(r in rates){
   fit_varImp <- varImp(fit, scale=FALSE)
   plot(fit_varImp)
   
+  ## ROC curve
+  library(pROC)
+  probsTrain <- predict(fit, X_rate, type = "prob")
+  rocCurve   <- roc(response = Y_rate,
+                    predictor = probsTrain[, "yes"],
+                    levels = rev(levels(Y_rate)))
+  plot(rocCurve, print.thres = "best")
+  
+  ## check change detection
+  train_probs <- predict(fit, X_rate, type = "prob")
+  train_pred <- predict(fit, X_rate)
+  train_probs <- cbind(Y, Y_rate, train_probs, train_pred)
+  confusionMatrix(train_probs$train_pred, train_probs$Y_rate)
+  
   ## prediction on test set
   Yt_rate <- factor(Yt[,r], levels = c("0", "1"), labels = c("no", "yes"))
   Xt_rate <- Xt[,var_importance]
   final_pred <- data.frame(
-    # "dt" = DTt$horizon_data.DTt,
+    "dt" = DTt$horizon_data.DTt,
     "pred" = predict(fit$finalModel, Xt_rate),
     # "act" = factor(Yt[,r], levels = c(0, 1), labels = c("nc","c"))
-    "act" = Yt_rate
+    "act" = Yt_rate,
+    "rate" = Yt[,response],
+    "change" = Yt$change
   )
+  probs <- predict(fit$finalModel, Xt_rate, type = "prob")
+  final_pred <- cbind(final_pred, probs, Xt_rate)
   confusionMatrix(final_pred$pred, final_pred$act)
+  
+  ## change metrics
+  change <- final_pred[which(final_pred$change == "change"),]
+  confusionMatrix(change$pred, change$act)
+  
+  probs <- predict(fit$finalModel, Xt_rate, type = "prob")
+  probs <- cbind(DTt$horizon_data.DTt, probs, Yt)
 
   ## save final model parameters
   results_out <- fit$results

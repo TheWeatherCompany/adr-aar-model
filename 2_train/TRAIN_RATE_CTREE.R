@@ -49,7 +49,7 @@ if(RunBatch == 0){
   user <- 'jfinn'
   airport <- 'LGA'
   response <- 'ARR_RATE'
-  model <- 'M1'
+  model <- 'M2'
   horizon <- 'H1'
 }
 
@@ -94,7 +94,7 @@ DTt <- readRDS(file = DTt)
 
 rates <- names(Y)[!names(Y) %in% c(response,"rate_lag","rate_dt","rate_dt_pct","rate_change")]
 # rates <- c(rates, c("pos","neg"))
-rates <- c(rates, c("change"))
+# rates <- c(rates, c("change"))
 
 ## classification of changes
 # change_data <- data.frame(rbind(Y, Yt)) %>%
@@ -154,7 +154,7 @@ Yt_probs <- factor(Yt[,response]
                    )
 
 train <- cbind(DT, Y[,c(response, "rate_change")], X_probs)
-test <- cbind(DTt, Yt[,c(response, "rate_change")], Xt_probs)
+test <- cbind(DTt, Yt[,c(response, "rate_change")], Xt_probs, Xt)
 
 ################################################ train classification model
 ## pre-processing (optional)

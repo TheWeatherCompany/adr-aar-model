@@ -23,11 +23,13 @@ import_notam <- function(user, airport){
 
 format_notam <- function(notam_data, horizon){
   ## runway closure variables -- select closures and rates for appropriate horizon
-  notam_features <- names(notam_data)
-  rnwylist <- notam_features[grepl(pattern = "clsd_",x = notam_features) == TRUE & 
-                               grepl(pattern = "rate",x = notam_features) == TRUE]
-  rnwylist <- rnwylist[which(grepl(pattern = paste0("_",tolower(horizon),"_"),x = rnwylist) == TRUE)]
-  notam_data_sub <- notam_data[,which(names(notam_data) %in% c("dt",rnwylist))]
+  # notam_features <- names(notam_data)
+  # rnwylist <- notam_features[grepl(pattern = "clsd_",x = notam_features) == TRUE &
+  #                              grepl(pattern = "rate",x = notam_features) == TRUE]
+  # rnwylist <- rnwylist[which(grepl(pattern = paste0("_",tolower(horizon),"_"),x = rnwylist) == TRUE)]
+  # notam_data_sub <- notam_data[,which(names(notam_data) %in% c("dt",rnwylist))]
+  
+  notam_data_sub <- notam_data
   return(notam_data_sub)
 }
 
