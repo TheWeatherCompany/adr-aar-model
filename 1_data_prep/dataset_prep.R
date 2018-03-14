@@ -17,14 +17,15 @@ suppressPackageStartupMessages(library(gridExtra))
 suppressPackageStartupMessages(library(stringr))
 suppressPackageStartupMessages(library(data.table))
 suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(RcppRoll))
 
 RunBatch = 0
 
 if(RunBatch == 0){
   user <- 'jfinn'
   airport <- 'LGA'
-  response <- 'DEP_RATE'
-  model <- 'M2'
+  response <- 'ARR_RATE'
+  model <- 'M3'
   horizons <- paste0("H",c(1:12))
 }
 

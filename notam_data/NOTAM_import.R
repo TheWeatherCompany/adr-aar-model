@@ -182,7 +182,7 @@ for (r in rwy){
       dat$closed <- 1
       dat$closed <- ifelse(dat$closed_rate == 0, 0, dat$closed)
       dat$issue_dt <- dts[i,"issue_dt"]
-      dat <- dat[,c("issue_dt","datetime","closed_rate")]
+      dat <- dat[,c("issue_dt","datetime","closed")]
       
       if(i == 1){rwy.dat <- dat}
       if(i != 1){rwy.dat <- rbind(rwy.dat,dat)}
@@ -192,7 +192,7 @@ for (r in rwy){
     rwy.dat$runway <- r
     ## remove duplicates (account for re-issues)
     rwy.dat <- unique(rwy.dat)
-    rwy.dat <- rwy.dat[which(rwy.dat$closed_rate > 0),]
+    rwy.dat <- rwy.dat[which(rwy.dat$closed > 0),]
     
     # rwy.dat$RUNWAY <- paste0(rwy.dat$RUNWAY,"_H1")
     if(!exists("cls.ts")){cls.ts <- rwy.dat}
@@ -208,71 +208,15 @@ dts.all$horizon <- (dts.all$datetime - strptime(format(x = dts.all$issue_dt,"%Y-
 dts.all$horizon <- as.numeric(dts.all$horizon)
 dts.all <- dts.all[order(dts.all$runway,dts.all$datetime,dts.all$horizon),]
 
-## create dataset of runway closures (issue_time) for each forecast horizon
-horizons <- 1:12
-
-## iterate through H 1 -12 and select valid forecasts for each horizon
-cl <- makeCluster(detectCores() - 1, type='SOCK')
-registerDoParallel(cl)
-horz.dat <- foreach(h = horizons,.combine = 'cbind',.packages = c('plyr','data.table')) %dopar%
-{
-  h.dat <- dts.all
-  ## select time periods we have information for at the horizon or further out
-  h.dat <- h.dat[which(h.dat$horizon >= h),]
-  h.dat <- unique(h.dat)
-  h.dat <- h.dat[order(h.dat$issue_dt,h.dat$datetime),]
-  
-  ## reshape - look for lags and determine true continuity?
-  # h.dat.wide <- reshape(data = h.dat,timevar = "horizon",idvar = c("DATETIME","RUNWAY"))
-  
-  ## for each time period, select the most recently issued runway closure information
-  # h.dat <- ddply(h.dat,.(RUNWAY,DATETIME), head,1)
-  
-  ## select each time period - then create timeseries of all dates / times
-  h.dat.unq <- h.dat[,c("runway","datetime","closed_rate")]
-  h.dat.unq <- ddply(h.dat.unq,.(runway,datetime), summarize,
-                     closed_rate = max(closed_rate,na.rm = T))
-  h.dat.unq <- unique(h.dat.unq)
-  h.dat.unq$closed <- 1
-  h.dat.unq <- reshape(data = h.dat.unq,timevar = "runway",idvar = c("datetime"),direction = "wide")
-  h.dat.unq <- merge(x = h.dat.unq,y = ts,by = "datetime",all.y = T)
-  h.dat.unq[is.na(h.dat.unq)] <- 0
-  
-  closed.vars <- names(h.dat.unq)
-  closed <- closed.vars[grepl(pattern = "datetime",closed.vars) == F & grepl(pattern = "rate",closed.vars) == F]
-  closed.rates <- closed.vars[grepl(pattern = "datetime",closed.vars) == F & grepl(pattern = "rate",closed.vars) == T]
-  for(i in c(1:length(closed))){
-    c.bin <- closed[i]
-    c.rate <- closed.rates[i]
-    h.dat.unq$var <- h.dat.unq[,c.bin]
-    h.dat.unq[,c.bin] <- with(h.dat.unq, ave(var, cumsum(var == 0), FUN = cumsum))
-    h.dat.unq$var <- NULL
-
-    m.dat <- h.dat.unq[which(h.dat.unq[,c.bin] >= 1),c("datetime",c.bin,c.rate)]
-    if(nrow(m.dat) > 0){
-      m.dat[,c.bin] <- 1
-      m.dat <- merge(x = m.dat,y = ts,by = "datetime",all.y = T)
-      m.dat[is.na(m.dat)] <- 0
-    }
-    if(nrow(m.dat) == 0){
-      m.dat <- ts
-      m.dat[,c.bin] <- 0
-      m.dat[,c.rate] <- 0
-    }
-    m.dat <- as.data.frame(m.dat[,c(c.bin,c.rate)])
-    id <- gsub("closed.","",c.bin)
-    id <- paste0("clsd_",id,"_h",h)
-    names(m.dat) <- gsub(c.bin,id,names(m.dat))
-    names(m.dat) <- gsub(c.rate,paste0(id,"_rate"),names(m.dat))
-    
-    if(c.bin == closed[1]){h.dat.bin <- m.dat}
-    if(c.bin != closed[1]){h.dat.bin <- cbind(h.dat.bin,m.dat)}
-  }
-  temp <- h.dat.bin
-}
-stopCluster(cl)
-
-rwy_closures <- cbind(ts,horz.dat)
+rwy_closures <- dts.all %>%
+  group_by(runway, datetime) %>%
+  mutate(last_fcst = max(issue_dt)) %>%
+  filter(issue_dt == last_fcst & horizon >= 0) %>%
+  select(datetime, runway, closed) %>%
+  unique() %>%
+  spread(runway, closed)
+rwy_closures <- left_join(x = ts, y = rwy_closures, by = "datetime")
+rwy_closures[is.na(rwy_closures)] <- 0
 rwy_closures$dt <- as.character(strptime(rwy_closures$datetime,format = "%Y-%m-%d %H:%M",tz = "UTC"))
 rwy_closures$datetime <- NULL
 
