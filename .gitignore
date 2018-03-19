@@ -55,7 +55,6 @@ metar_data/previous
 metar_data/processed
 metar_data/raw
 notam_data/processed
-2_train/M*
 
 2_train/SVM-RFE/
 
@@ -68,3 +67,7 @@ generate_train_script.R alias
 *.boxnote
 
 *.Rds
+
+*.rda
+
+*.txt

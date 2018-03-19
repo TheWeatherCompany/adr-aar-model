@@ -1,0 +1,276 @@
+---
+title: "TRAIN_RESULTS"
+output: html_document
+---
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+suppressMessages(library(caret))
+suppressMessages(library(plyr))
+suppressMessages(library(reshape2))
+suppressMessages(library(data.table))
+suppressMessages(library(doParallel))
+suppressMessages(library(tidyverse))
+suppressMessages(library(mlbench))
+suppressMessages(library(randomForest))
+suppressMessages(library(scales))
+
+Sys.setenv(TZ="America/New_York")
+
+setwd("../../")
+dir <- getwd()
+```
+
+```{r model_params, message=FALSE, warning=FALSE, echo=FALSE}
+RunBatch = 0
+
+if(RunBatch == 0){
+  user <- 'jfinn'
+  airport <- 'LGA'
+  response <- 'ARR_RATE'
+  model <- 'M4'
+  horizon <- 'H1'
+}
+
+if(RunBatch == 1){
+  args <- commandArgs(trailingOnly = TRUE)
+  airport <- args[1]
+  response <- args[2]
+  model <- args[3]
+  horizon <- args[4]
+}
+
+print(airport)
+print(response)
+print(model)
+print(horizon)
+
+model_num <- paste0(model,"_",horizon)
+rate <- ifelse(response == "DEP_RATE","ADR","AAR")
+response <- tolower(response)
+
+model_type <- 'rf'
+model_dir <- file.path(dir, "2_train", model, model_type)
+
+seed <- 2187
+```
+
+```{r functions, message=FALSE, warning=FALSE, echo=FALSE}
+## define function to calculate rate probabilities
+binary_rate_pred <- function(r, X){
+  print(r)
+  ## load important features & subset
+  featureSelect_file <- file.path(model_dir, "variable_importance",paste0(paste(airport, rate, model_num, r, sep = "_"),".txt"))
+  featureSelect <- read.table(featureSelect_file)
+  featureSelect <- as.character(rownames(featureSelect))
+  Xt_R <- X[which(names(X) %in% featureSelect)]
+  
+  ## load model
+  fitModel_file <- file.path(model_dir,paste(airport, rate, model_num, r, model_type, 'model.rda',sep = "_"))
+  fitModel <- readRDS(fitModel_file)
+  print(fitModel)
+  print(varImp(fitModel))
+  
+  ## generate predictions
+  temp_pred <- predict.train(object = fitModel,newdata = Xt_R, type = "prob")
+  temp_pred <- data.frame(temp_pred[,"yes"])
+  names(temp_pred) <- paste0(r,"_prob")
+  return(temp_pred)
+}
+```
+
+```{r load_data, message=FALSE, warning=FALSE, echo=FALSE}
+## load in model datasets 
+X <- file.path(file.path(dir,'1_data_prep',model),paste0(airport,"_",rate,'_',model_num,'_X.Rds'))
+X <- readRDS(file = X)
+
+Y <- file.path(file.path(dir,'1_data_prep',model),paste0(airport,"_",rate,'_',model_num,'_Y.Rds'))
+Y <- readRDS(file = Y)
+
+DT <- file.path(file.path(dir,'1_data_prep',model),paste0(airport,"_",rate,'_',model_num,'_DT.Rds'))
+DT <- readRDS(file = DT)
+
+rates <- names(Y)[!names(Y) %in% c(response,"rate_lag","rate_dt","rate_dt_pct","rate_change")]
+```
+
+```{r prob_calcs, message=FALSE, warning=FALSE, echo=FALSE}
+## get predictions for each rate
+for(r in rates){
+  temp_pred <- binary_rate_pred(r, X)
+  if(r == rates[1]){rate_probs <- temp_pred}
+  if(r != rates[1]){rate_probs <- cbind(rate_probs, temp_pred)}
+  rm(temp_pred, r)
+}
+rate_probs$rowid <- seq(1:(nrow(rate_probs)))
+```
+
+```{r model_train, message=FALSE, warning=FALSE, echo=FALSE}
+Y_probs <- factor(Y[,response])
+X_probs <- rate_probs %>% select(-rowid)
+
+index <- as.numeric(rownames(X_probs))
+nfold <- 5
+groups <- cut_number(index, 5)
+## create list of indices
+group_folds <- groupKFold(groups, k = nfold)
+
+## define train control
+fitControl <- trainControl(method = 'cv'
+                           , allowParallel = TRUE
+                           , number = nfold
+                           , index = group_folds
+                           # , summaryFunction = kss_metric
+                           # , sampling = 'smote'
+                           # , classProbs = TRUE
+                           # , summaryFunction = twoClassSummary
+                           , savePredictions = TRUE
+)
+
+## ctree
+grid_ctree2 <- expand.grid(maxdepth = seq(3, 18, 3), mincriterion = 0.95)
+cl <- makeCluster(detectCores())
+registerDoParallel(cl)
+set.seed(218)
+fit_ctree2 <- train(x = X_probs
+                    , y = Y_probs
+                    # , weights = case_weights
+                    , method = 'ctree2'
+                    , trControl = fitControl
+                    , tuneGrid = grid_ctree2
+                    # , tuneLength = 10
+                    #, returnResamp = TRUE
+                    # , metric = 'ROC'
+)
+train_ctree2 <- fit_ctree2
+rm(fit_ctree2) 
+stopCluster(cl)
+```
+
+## Recursive Partition Model Results
+### Review Model Results
+
+```{r model_results, message=FALSE, warning=FALSE, echo=FALSE}
+print(train_ctree2)
+# train_ctree2$results
+# train_ctree2$finalModel
+
+plot(train_ctree2)
+# plot(train_ctree2$finalModel)
+# train_ctree2$finalModel
+
+featureImp <- varImp(train_ctree2, scale=FALSE)
+plot(featureImp)
+```
+
+### Overall Metrics
+
+```{r overall_metrics, message=FALSE, warning=FALSE, echo=FALSE}
+final_pred <- data.frame(
+  "dt" = DT$horizon_data.DT,
+  "pred" = as.numeric(as.character(predict(train_ctree2$finalModel, X_probs))),
+  "act" = as.numeric(as.character(Y_probs)),
+  "rate_change" = Y$rate_change
+)
+final_pred <- cbind(final_pred, X_probs)
+
+final_pred <- final_pred %>%
+  mutate(
+    error = act - pred,
+    error_2 = error ^ 2,
+    APE = abs((pred - act) / act * 100)
+  )
+
+final_pred %>%
+  summarise(
+    RMSE = round(sqrt(mean(error_2,na.rm = T)), 2),
+    MAE = round(mean(abs(error)), 2),
+    MAPE = round(mean(APE,na.rm = T), 2)
+  ) %>%
+  data.frame()
+```
+
+### Rate Metrics
+
+```{r rate_metrics, message=FALSE, warning=FALSE, echo=FALSE}
+final_pred %>%
+  group_by(act) %>%
+  summarise(
+    RMSE = round(sqrt(mean(error_2,na.rm = T)), 2),
+    MAE = round(mean(abs(error)), 2),
+    MAPE = round(mean(APE,na.rm = T), 2)
+  ) %>%
+  gather(Metric, Value, -act) %>%
+  mutate(Rate = factor(act)) %>%
+  ggplot(aes(x = Rate, y = Value, fill = Metric)) + 
+  geom_bar(stat = "identity", position = "dodge") + 
+  facet_wrap(~ Metric, nrow = 3, scales = "free_y") +
+  theme_bw() + theme(legend.position = "none")
+
+print(confusionMatrix(final_pred$pred, final_pred$act))
+```
+
+### Change Metrics
+```{r change_metrics, message=FALSE, warning=FALSE, echo=FALSE}
+final_pred$act_change <- ifelse(abs(final_pred$rate_change) == 1, 1, 0)
+final_pred$act_dir <- ifelse(final_pred$rate_change == 0, "NONE", 
+                             ifelse(final_pred$rate_change == 1, "POS", "NEG"))
+
+final_pred %>%
+  mutate(act_change = factor(act_change, levels = c(0, 1), labels = c("No Change", "Change"))) %>%
+  group_by(act_change) %>%
+  summarise(
+    RMSE = round(sqrt(mean(error_2,na.rm = T)), 2),
+    MAE = round(mean(abs(error)), 2),
+    MAPE = round(mean(APE,na.rm = T), 2)
+  ) %>%
+  data.frame()
+
+## look at metrics on the change data
+final_pred$dt <- as.POSIXct(strptime(x = final_pred$dt, format = "%Y-%m-%d %H:%M:%S", tz = "UTC"))
+final_pred$dt_lag <- shift(x = final_pred$dt, n = 1, type = "lag")
+final_pred$time_diff <- final_pred$dt - final_pred$dt_lag
+
+## calculate pred change
+final_pred$pred_lag <- shift(x = final_pred$pred,n = 1L,fill = NA,type = "lag")
+final_pred$pred_diff_pct <- ifelse(final_pred$pred != 0,
+                             (final_pred$pred - final_pred$pred_lag) / final_pred$pred * 100,
+                             (final_pred$pred - final_pred$pred_lag) / 1 * 100)  
+## identify significant predicted changes
+final_pred$pred_change <- ifelse(abs(final_pred$pred_diff_pct) >= 5, 1, 0)
+final_pred$pred_change <- ifelse(final_pred$time_diff != 1, NA, final_pred$pred_change)
+## determine the direction of predicted change
+final_pred$pred_dir <- ifelse(final_pred$pred_change == 0, "NONE", 
+                              ifelse(final_pred$pred_diff_pct > 0, "POS", "NEG"))
+confusionMatrix(final_pred$pred_change, final_pred$act_change)
+
+```
+
+#### Change Metrics by Rate
+```{r change_metrics_rate, message=FALSE, warning=FALSE, echo=FALSE}
+## change metrics by rate
+final_pred %>%
+  mutate(act_change = factor(act_change, levels = c(0, 1), labels = c("No Change", "Change"))) %>%
+  group_by(act, act_change) %>%
+  summarise(
+    RMSE = round(sqrt(mean(error_2,na.rm = T)), 2),
+    MAE = round(mean(abs(error)), 2),
+    MAPE = round(mean(APE,na.rm = T), 2)
+  ) %>%
+  gather(Metric, Value, -act, -act_change) %>%
+  mutate(
+    Rate = factor(act),
+    Change = act_change
+    ) %>%
+  ggplot(aes(x = Rate, y = Value, fill = Change)) + 
+  geom_bar(stat = "identity", position = "dodge") + 
+  facet_wrap(~ Metric, nrow = 3, scales = "free_y") +
+  theme_bw() + theme(legend.position = "top")
+
+## false alarms by rate
+final_pred$FalseAlarm <- ifelse(final_pred$pred_change == 1 & final_pred$act_change == 0, 1, 0)
+final_pred$Hit <- ifelse(final_pred$pred == 1 & final_pred$act == 1, 1, 0)
+
+false_alarms <- final_pred %>%
+  filter(final_pred$pred_change == 1 & final_pred$act_change == 0)
+table(false_alarms$pred, false_alarms$act)
+```
+
