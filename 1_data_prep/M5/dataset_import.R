@@ -97,18 +97,18 @@ format_metar <- function(metar_data, horizon){
   # metar_data_sub <- metar_data_sub[-which(names(metar_data_sub) %in% c(cat_vars,"Y"))]
   # features <- names(metar_data_sub)[-which(names(metar_data_sub) %in% c("dt"))]
   # 
-  # for(var in features){
-  #   ## calculate lead values
-  #   temp_leads <- forecast_leads(metar_data_sub, var)
-  #   temp_leads[,var] <- NULL
-  #   
-  #   ## calculate max / min / avg for numeric variables
-  #   temp_fcst <- forecast_calcs(metar_data_sub, var)
-  #   temp_leads <- left_join(x = temp_leads, y = temp_fcst, by = "dt")
-  # 
-  #   metar_data_sub <- left_join(x = metar_data_sub, y = temp_leads, by = "dt")
-  #   rm(temp_leads, temp_fcst)
-  # }
+  for(var in features){
+    ## calculate lead values
+    temp_leads <- forecast_leads(metar_data_sub, var, 3)
+    temp_leads[,var] <- NULL
+
+    ## calculate max / min / avg for numeric variables
+    # temp_fcst <- forecast_calcs(metar_data_sub, var)
+    # temp_leads <- left_join(x = temp_leads, y = temp_fcst, by = "dt")
+
+    metar_data_sub <- left_join(x = metar_data_sub, y = temp_leads, by = "dt")
+    rm(temp_leads, temp_fcst)
+  }
   
   return(metar_data_sub)
 }
@@ -140,9 +140,9 @@ forecast_calcs <- function(dataset, var){
   return(var_val)
 }
 
-forecast_leads <- function(dataset, var){
+forecast_leads <- function(dataset, var, n){
   var_val <- dataset[order(dataset$dt), c("dt",var)] %>% data.frame()
-  for(hr in c(seq(from = 1, to = 6, by = 1))){
+  for(hr in c(seq(from = 1, to = n, by = 1))){
     ## calculate the lead
     lead_val <- shift(x = var_val[,var], n = hr, type ="lead")
     lead_var <- paste0(var,"_lead",abs(hr))

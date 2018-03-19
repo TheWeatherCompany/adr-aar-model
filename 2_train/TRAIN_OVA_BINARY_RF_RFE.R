@@ -4,6 +4,7 @@
 ## Date: Mar 12, 2018
 ## Author: jaf
 ##
+## Notes: No testing data; Manually create folds for cross-validation
 ################################################################################
 ### load libraries
 suppressMessages(library(caret))
@@ -22,13 +23,13 @@ dir <- getwd()
 ################################################
 ## set model parameters
 
-RunBatch = 0
+RunBatch = 1
 
 if(RunBatch == 0){
   user <- 'jfinn'
   airport <- 'LGA'
   response <- 'ARR_RATE'
-  model <- 'M2'
+  model <- 'M3'
   horizon <- 'H1'
 }
 
@@ -56,96 +57,50 @@ seed <- 2187
 
 X <- file.path(file.path(dir,'1_data_prep',model),paste0(airport,"_",rate,'_',model_num,'_X.Rds'))
 X <- readRDS(file = X)
-Xt <- file.path(file.path(dir,'1_data_prep',model),paste0(airport,"_",rate,'_',model_num,'_Xt.Rds'))
-Xt <- readRDS(file = Xt)
 
 Y <- file.path(file.path(dir,'1_data_prep',model),paste0(airport,"_",rate,'_',model_num,'_Y.Rds'))
 Y <- readRDS(file = Y)
-Yt <- file.path(file.path(dir,'1_data_prep',model),paste0(airport,"_",rate,'_',model_num,'_Yt.Rds'))
-Yt <- readRDS(file = Yt)
 
 DT <- file.path(file.path(dir,'1_data_prep',model),paste0(airport,"_",rate,'_',model_num,'_DT.Rds'))
 DT <- readRDS(file = DT)
-DTt <- file.path(file.path(dir,'1_data_prep',model),paste0(airport,"_",rate,'_',model_num,'_DTt.Rds'))
-DTt <- readRDS(file = DTt)
 
 rates <- names(Y)[!names(Y) %in% c(response,"rate_lag","rate_dt","rate_dt_pct","rate_change")]
 print(rates)
-              
+
+## define train / test -- split dataset into 5ths; no partition repeated
+nfold <- 5
+nrow <- nrow(X)
+fold_size <- round(nrow / nfold)
+
+create_index <- data.frame("index" = as.numeric(rownames(X)))
+create_index$fold <- cut(x = create_index$index, 
+                  labels = paste0("fold_", c(1:nfold)),
+                  breaks = seq(from = 0, to = fold_size * nfold, by = fold_size))
+group_folds <- groupKFold(create_index$fold, k = nfold)
+
 ################################################ SVM -- RFE with random forest
-r <- rates[1]
 for(r in rates){
   print(r)
+  r_num <- as.numeric(gsub("rate_", "", r))
   
-  ## prepare data for feature selection
-  Y_rfe <- factor(Y[,r], levels = c("0", "1"), labels = c("no", "yes"))
-  X_rfe <- X
-  
-  ## identify changes -- only select those that include the rate being modeled
-  r_num <- as.numeric(gsub("rate_","",r))
-  Y$change <- ifelse((Y$rate_change == 1 | Y$rate_change == -1) & (Y[,response] == r_num | Y$rate_lag == r_num), 1, 0)
-  Yt$change <- ifelse((Yt$rate_change == 1 | Yt$rate_change == -1) & (Yt[,response] == r_num | Yt$rate_lag == r_num), 1, 0)
-  change <- sum(Y$change)
-  no_change <- nrow(Y) - sum(Y$change)
-  ratio <- change / nrow(Y)
-  Y$change <- factor(Y$change, levels = c(0, 1), labels = c("no_change","change"))
-  Yt$change <- factor(Yt$change, levels = c(0, 1), labels = c("no_change","change"))
-  
-  ## weight vector
-  model_weights <- ifelse(Y$change == "no_change", 1, 1 / ratio * 10)
-
-  ## set rfe controls -- 5-fold cross-validation
-  rfe_control <- rfeControl(functions = rfFuncs
-                            , method = "cv"
-                            , number = 5
-                            , allowParallel = TRUE)
-  ## recursive feature elimination w/ random forest function
-  cl <- makeCluster(detectCores())
-  registerDoParallel(cl)
-  start_time <- Sys.time()
-  rfe_results <- rfe(x = X_rfe
-                     , y = Y_rfe
-                     , scale = FALSE
-                     , sizes = seq(from = 5, to = 30, by = 5)
-                     , rfeControl = rfe_control
-                     , weights = model_weights
-                     , seed = seed)
-  stopCluster(cl)
-  print(Sys.time() - start_time)
-
-  print(rfe_results)
-  rfe_results$results
-  predictors(rfe_results)
-  plot(rfe_results, type=c("g", "o"))
-
-  ## select the most important features
-  var_importance <- predictors(rfe_results)
-  ## if the model selects all features -- just subset the top 30
-  if(length(var_importance) == ncol(X_rfe)){
-    selectedVars <- rfe_results$variables
-    var_importance <- rfe_results$control$functions$selectVar(selectedVars, 15)
-  }
-
-  ## save variables to file
-  var_importance_file <- file.path(getwd(), "2_train", model, "rf/variable_importance", paste0(paste(airport, rate, model, horizon, r, sep = "_"), ".txt"))
-  write.table(var_importance, file = var_importance_file)
-
   ## set train control -- 5-fold cross validation
   ctrl <- trainControl(method = "cv"
-                       , number = 5
+                       , number = nfold
+                       , index = group_folds
                        , allowParallel = TRUE
                        , classProbs =  TRUE
+                       # , sampling = "smote"
   )
   
   ## subset predictors to most important
   Y_rate <- factor(Y[,r], levels = c("0", "1"), labels = c("no", "yes"))
-  X_rate <- X[,var_importance]
+  X_rate <- X
   
   ## tuning grid
   mtry <- seq(from = 5, to = 30, by = 5)
   tunegrid <- expand.grid(.mtry=mtry)
   ## train & tune the random forest
-  cl <- makeCluster(detectCores())
+  cl <- makeCluster(detectCores() - 1)
   registerDoParallel(cl)
   start_time <- Sys.time()
   fit <- train(
@@ -154,7 +109,6 @@ for(r in rates){
     , method = "rf"
     , tuneGrid = tunegrid
     , trControl = ctrl
-    , weights = model_weights
     , seed = seed
   )
   stopCluster(cl)
@@ -163,45 +117,34 @@ for(r in rates){
   ## review model results
   print(fit)
   fit$results
-  plot(fit)
   fit_varImp <- varImp(fit, scale=FALSE)
-  plot(fit_varImp)
   
-  ## ROC curve
-  library(pROC)
-  probsTrain <- predict(fit, X_rate, type = "prob")
-  rocCurve   <- roc(response = Y_rate,
-                    predictor = probsTrain[, "yes"],
-                    levels = rev(levels(Y_rate)))
-  plot(rocCurve, print.thres = "best")
+  ## save variables to file
+  var_importance <- fit_varImp$importance
+  var_importance_file <- file.path(getwd(), "2_train", model, "rf/variable_importance", paste0(paste(airport, rate, model, horizon, r, sep = "_"), ".txt"))
+  write.table(var_importance, file = var_importance_file)
   
-  ## check change detection
-  train_probs <- predict(fit, X_rate, type = "prob")
-  train_pred <- predict(fit, X_rate)
-  train_probs <- cbind(Y, Y_rate, train_probs, train_pred)
-  confusionMatrix(train_probs$train_pred, train_probs$Y_rate)
-  
-  ## prediction on test set
-  Yt_rate <- factor(Yt[,r], levels = c("0", "1"), labels = c("no", "yes"))
-  Xt_rate <- Xt[,var_importance]
-  final_pred <- data.frame(
-    "dt" = DTt$horizon_data.DTt,
-    "pred" = predict(fit$finalModel, Xt_rate),
-    # "act" = factor(Yt[,r], levels = c(0, 1), labels = c("nc","c"))
-    "act" = Yt_rate,
-    "rate" = Yt[,response],
-    "change" = Yt$change
-  )
-  probs <- predict(fit$finalModel, Xt_rate, type = "prob")
-  final_pred <- cbind(final_pred, probs, Xt_rate)
-  confusionMatrix(final_pred$pred, final_pred$act)
+  ## create change variable
+  rate_change <- Y
+  rate_change$change <- ifelse((rate_change[,response] == r_num | rate_change$rate_lag == r_num) & rate_change$rate_change != 0, 1, 0)
+
+  ## review results
+  results <- data.frame(
+    "dt" = DT,
+    "pred" = predict(fit$finalModel, X),
+    "act" = Y_rate,
+    "change" = rate_change$change
+    )
+  print(table(results$pred, results$act))
   
   ## change metrics
-  change <- final_pred[which(final_pred$change == "change"),]
-  confusionMatrix(change$pred, change$act)
-  
-  probs <- predict(fit$finalModel, Xt_rate, type = "prob")
-  probs <- cbind(DTt$horizon_data.DTt, probs, Yt)
+  results$dt <- as.POSIXct(strptime(x = results$dt, format = "%Y-%m-%d %H:%M:%S", tz = "UTC"))
+  results$dt_lag <- shift(x = results$dt, n = 1, type = "lag")
+  results$time_diff <- results$dt - results$dt_lag
+  results$pred_lag <- shift(x = results$pred, n = 1, type = "lag")
+  results$pred_change <- ifelse(results$pred != results$pred_lag, 1, 0)
+  results$pred_change <- ifelse(results$time_diff != 1, NA, results$pred_change)
+  print(confusionMatrix(results$change, results$pred_change))
 
   ## save final model parameters
   results_out <- fit$results

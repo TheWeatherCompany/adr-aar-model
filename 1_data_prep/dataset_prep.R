@@ -19,13 +19,13 @@ suppressPackageStartupMessages(library(data.table))
 suppressPackageStartupMessages(library(tidyverse))
 suppressPackageStartupMessages(library(RcppRoll))
 
-RunBatch = 0
+RunBatch = 1
 
 if(RunBatch == 0){
   user <- 'jfinn'
-  airport <- 'LGA'
+  airport <- 'SFO'
   response <- 'ARR_RATE'
-  model <- 'M3'
+  model <- 'M5'
   horizons <- paste0("H",c(1:12))
 }
 
@@ -42,13 +42,13 @@ if(RunBatch == 1){
 source(file.path(model, 'dataset_import.R'))
 source(file.path(model, 'horizon_format.R'))
 
+setwd("../")
+dir <- getwd()
+
 print(user)
 print(airport)
 print(response)
 print(model)
-
-setwd("../")
-dir <- getwd()
 
 ################### import dataset
 notam_data <- import_notam(user, airport)
@@ -59,6 +59,7 @@ aspm_data <- import_aspm(user, airport)
 response <- tolower(response)
 rate <- ifelse(response == "dep_rate","ADR","AAR")
 
+horizon <- 'H1'
 for(horizon in horizons){
   print(horizon)
   ## run through data prep process for given horizon
@@ -74,13 +75,13 @@ for(horizon in horizons){
   # saveRDS(object = data.frame(horizon_data$W),file = file.path(output_dir, paste0(airport,"_",rate,'_',model_num,'_W.Rds')))
   
   # test set - save response and feature sets for evaluation
-  saveRDS(object = data.frame(horizon_data$DTt),file = file.path(output_dir, paste0(airport,"_",rate,'_',model_num,'_DTt.Rds')))
-  saveRDS(object = data.frame(horizon_data$Yt),file = file.path(output_dir, paste0(airport,"_",rate,'_',model_num,'_Yt.Rds')))
-  saveRDS(object = data.frame(horizon_data$Xt),file = file.path(output_dir, paste0(airport,"_",rate,'_',model_num,'_Xt.Rds')))
+  # saveRDS(object = data.frame(horizon_data$DTt),file = file.path(output_dir, paste0(airport,"_",rate,'_',model_num,'_DTt.Rds')))
+  # saveRDS(object = data.frame(horizon_data$Yt),file = file.path(output_dir, paste0(airport,"_",rate,'_',model_num,'_Yt.Rds')))
+  # saveRDS(object = data.frame(horizon_data$Xt),file = file.path(output_dir, paste0(airport,"_",rate,'_',model_num,'_Xt.Rds')))
   # saveRDS(object = data.frame(horizon_data$Wt),file = file.path(output_dir, paste0(airport,"_",rate,'_',model_num,'_Wt.Rds')))
   
   # validation set - save full testing set response and feature sets for evaluation
-  saveRDS(object = data.frame(horizon_data$DTv),file = file.path(output_dir, paste0(airport,"_",rate,'_',model_num,'_DTv.Rds')))
-  saveRDS(object = data.frame(horizon_data$Yv),file = file.path(output_dir, paste0(airport,"_",rate,'_',model_num,'_Yv.Rds')))
-  saveRDS(object = data.frame(horizon_data$Xv),file = file.path(output_dir, paste0(airport,"_",rate,'_',model_num,'_Xv.Rds')))
+  # saveRDS(object = data.frame(horizon_data$DTv),file = file.path(output_dir, paste0(airport,"_",rate,'_',model_num,'_DTv.Rds')))
+  # saveRDS(object = data.frame(horizon_data$Yv),file = file.path(output_dir, paste0(airport,"_",rate,'_',model_num,'_Yv.Rds')))
+  # saveRDS(object = data.frame(horizon_data$Xv),file = file.path(output_dir, paste0(airport,"_",rate,'_',model_num,'_Xv.Rds')))
 }

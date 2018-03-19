@@ -1,0 +1,4 @@
+Rscript dataset_prep.R jfinn LGA ARR_RATE M5 H1
+Rscript dataset_prep.R jfinn LGA DEP_RATE M5 H1
+Rscript dataset_prep.R jfinn SFO ARR_RATE M5 H1
+Rscript dataset_prep.R jfinn SFO DEP_RATE M5 H1
