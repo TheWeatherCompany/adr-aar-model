@@ -18,6 +18,7 @@ Sys.setenv(TZ="America/New_York")
 
 setwd("../../")
 dir <- getwd()
+
 ```
 
 ```{r model_params, message=FALSE, warning=FALSE, echo=FALSE}
@@ -52,12 +53,14 @@ model_type <- 'rf'
 model_dir <- file.path(dir, "2_train", model, model_type)
 
 seed <- 2187
+
 ```
 
 ```{r functions, message=FALSE, warning=FALSE, echo=FALSE}
 ## define function to calculate rate probabilities
 binary_rate_pred <- function(r, X){
   print(r)
+  
   ## load important features & subset
   featureSelect_file <- file.path(model_dir, "variable_importance",paste0(paste(airport, rate, model_num, r, sep = "_"),".txt"))
   featureSelect <- read.table(featureSelect_file)
@@ -67,15 +70,39 @@ binary_rate_pred <- function(r, X){
   ## load model
   fitModel_file <- file.path(model_dir,paste(airport, rate, model_num, r, model_type, 'model.rda',sep = "_"))
   fitModel <- readRDS(fitModel_file)
+  
+  ## print model results
   print(fitModel)
+  print(fitModel$resample)
   print(varImp(fitModel))
+  
+  probs <- fitModel$pred
+  
+  ## review folds
+  # fold_1 <- fitModel$control$indexOut$Resample1
+  
+  ## get predictions on holdout set
+  holdout_pred <- fitModel$pred %>% data.frame() %>% filter(mtry == as.numeric(fitModel$bestTune))
+  names(holdout_pred) <- paste0(names(holdout_pred), "_ho")
+  # holdout_pred <- holdout_pred[,c("rowIndex","yes")]
+  # names(holdout_pred) <- gsub("yes", paste0(r,"_prob"), names(holdout_pred))
+  # names(holdout_pred) <- gsub("yes", paste0(r,"_prob_holdout"), names(holdout_pred))
   
   ## generate predictions
   temp_pred <- predict.train(object = fitModel,newdata = Xt_R, type = "prob")
-  temp_pred <- data.frame(temp_pred[,"yes"])
-  names(temp_pred) <- paste0(r,"_prob")
-  return(temp_pred)
+  temp_pred_rate <- data.frame(predict.train(object = fitModel,newdata = Xt_R))
+  names(temp_pred_rate) <- "pred"
+  temp_pred_rate$rate <- Y[,response]
+  temp_pred_rate$act <- factor(ifelse(temp_pred_rate$rate == 28, "yes", "no"))
+  # temp_pred_rate <- cbind(temp_pred_rate, temp_pred, holdout_pred)
+  # temp_pred <- data.frame(temp_pred[,"yes"])
+  # names(temp_pred) <- paste0(r,"_prob")
+  # names(temp_pred) <- paste0(r,"_prob_train")
+  test <- cbind(temp_pred_rate, temp_pred, holdout_pred)
+  
+  return(holdout_pred)
 }
+
 ```
 
 ```{r load_data, message=FALSE, warning=FALSE, echo=FALSE}
@@ -90,26 +117,33 @@ DT <- file.path(file.path(dir,'1_data_prep',model),paste0(airport,"_",rate,'_',m
 DT <- readRDS(file = DT)
 
 rates <- names(Y)[!names(Y) %in% c(response,"rate_lag","rate_dt","rate_dt_pct","rate_change")]
+
 ```
 
 ```{r prob_calcs, message=FALSE, warning=FALSE, echo=FALSE}
 ## get predictions for each rate
-for(r in rates){
+for(r in rates[1:6]){
   temp_pred <- binary_rate_pred(r, X)
   if(r == rates[1]){rate_probs <- temp_pred}
-  if(r != rates[1]){rate_probs <- cbind(rate_probs, temp_pred)}
+  if(r != rates[1]){rate_probs <- left_join(x = rate_probs, y = temp_pred, by = "rowIndex")}
   rm(temp_pred, r)
 }
-rate_probs$rowid <- seq(1:(nrow(rate_probs)))
+
+# test <- cbind(Y[,response], rate_probs)
+
 ```
 
 ```{r model_train, message=FALSE, warning=FALSE, echo=FALSE}
 Y_probs <- factor(Y[,response])
-X_probs <- rate_probs %>% select(-rowid)
+X_probs <- rate_probs %>% select(-rowIndex)
 
+preProc <- preProcess(x = X_probs, method = c("center","scale"))
+X_probs <- predict(preProc, X_probs)
+
+## manually create folds
 index <- as.numeric(rownames(X_probs))
-nfold <- 5
-groups <- cut_number(index, 5)
+nfold <- 10
+groups <- cut_number(index, nfold)
 ## create list of indices
 group_folds <- groupKFold(groups, k = nfold)
 
@@ -117,9 +151,11 @@ group_folds <- groupKFold(groups, k = nfold)
 fitControl <- trainControl(method = 'cv'
                            , allowParallel = TRUE
                            , number = nfold
+                           , repeats = 5
                            , index = group_folds
+                           , returnResamp = "all"
                            # , summaryFunction = kss_metric
-                           # , sampling = 'smote'
+                           # , sampling = 'up'
                            # , classProbs = TRUE
                            # , summaryFunction = twoClassSummary
                            , savePredictions = TRUE
@@ -143,6 +179,7 @@ fit_ctree2 <- train(x = X_probs
 train_ctree2 <- fit_ctree2
 rm(fit_ctree2) 
 stopCluster(cl)
+
 ```
 
 ## Recursive Partition Model Results
@@ -150,6 +187,7 @@ stopCluster(cl)
 
 ```{r model_results, message=FALSE, warning=FALSE, echo=FALSE}
 print(train_ctree2)
+print(train_ctree2$resample)
 # train_ctree2$results
 # train_ctree2$finalModel
 
@@ -164,12 +202,15 @@ plot(featureImp)
 ### Overall Metrics
 
 ```{r overall_metrics, message=FALSE, warning=FALSE, echo=FALSE}
-final_pred <- data.frame(
-  "dt" = DT$horizon_data.DT,
-  "pred" = as.numeric(as.character(predict(train_ctree2$finalModel, X_probs))),
-  "act" = as.numeric(as.character(Y_probs)),
-  "rate_change" = Y$rate_change
-)
+final_pred <- train_ctree2$pred %>% data.frame() %>% 
+  filter(maxdepth == as.numeric(train_ctree2$bestTune$maxdepth)) %>%
+  mutate(
+    act = as.numeric(as.character(obs)),
+    pred = as.numeric(as.character(pred))
+  ) %>%
+  select(pred, act)
+final_pred$dt <- DT$horizon_data.DT
+final_pred$rate_change <- Y$rate_change
 final_pred <- cbind(final_pred, X_probs)
 
 final_pred <- final_pred %>%

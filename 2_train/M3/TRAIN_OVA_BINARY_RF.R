@@ -54,7 +54,6 @@ seed <- 2187
 
 ################################################
 ## load in model datasets 
-
 X <- file.path(file.path(dir,'1_data_prep',model),paste0(airport,"_",rate,'_',model_num,'_X.Rds'))
 X <- readRDS(file = X)
 
@@ -85,6 +84,7 @@ for(r in rates){
                        , index = group_folds
                        , allowParallel = TRUE
                        , classProbs =  TRUE
+                       , savePredictions = "all"
                        # , sampling = "smote"
   )
   

@@ -168,9 +168,25 @@ final_pred <- data.frame(
   "dt" = DT$horizon_data.DT,
   "pred" = as.numeric(as.character(predict(train_ctree2$finalModel, X_probs))),
   "act" = as.numeric(as.character(Y_probs)),
+  "miss" = ifelse(final_pred$pred != final_pred$act, 1, 0),
   "rate_change" = Y$rate_change
 )
+
+## add it predicted based on max probability
+pred_max <- X_probs %>%
+  mutate(dt = DT$horizon_data.DT) %>%
+  gather(rate, pred, -dt) %>%
+  group_by(dt) %>%
+  mutate(max_probs = max(pred, na.rm = T)) %>%
+  filter(pred == max_probs) %>% 
+  group_by(dt) %>% 
+  slice(1)
+pred_max$max_pred <- as.numeric(gsub(paste(c("rate_","_prob"),collapse = "|"),"",pred_max$rate))
+pred_max <- pred_max[,c("dt","max_pred")]
+
+final_pred <- left_join(x = final_pred, y = pred_max, by = "dt")
 final_pred <- cbind(final_pred, X_probs)
+final_pred$dt <- as.POSIXct(strptime(x = final_pred$dt, format = "%Y-%m-%d %H:%M:%S", tz = "UTC"))
 
 final_pred <- final_pred %>%
   mutate(
@@ -187,6 +203,18 @@ final_pred %>%
   ) %>%
   data.frame()
 ```
+
+### Example
+```{r example_plot, message=FALSE, warning=FALSE, echo=FALSE}
+final_pred %>% 
+  filter(dt >= "2014-01-31 15:00:00" & dt <= "2014-02-01 05:00:00") %>%
+  select(dt, pred, act, max_pred) %>%
+  gather(rate, value, -dt) %>%
+  ggplot(aes(x = dt, y = value, colour = rate)) +
+    geom_line() + geom_point() + facet_wrap( ~ rate, nrow = 3)
+
+```
+
 
 ### Rate Metrics
 
@@ -225,7 +253,6 @@ final_pred %>%
   data.frame()
 
 ## look at metrics on the change data
-final_pred$dt <- as.POSIXct(strptime(x = final_pred$dt, format = "%Y-%m-%d %H:%M:%S", tz = "UTC"))
 final_pred$dt_lag <- shift(x = final_pred$dt, n = 1, type = "lag")
 final_pred$time_diff <- final_pred$dt - final_pred$dt_lag
 
