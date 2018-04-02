@@ -19,14 +19,14 @@ suppressPackageStartupMessages(library(data.table))
 suppressPackageStartupMessages(library(tidyverse))
 suppressPackageStartupMessages(library(RcppRoll))
 
-RunBatch = 1
+RunBatch = 0
 
 if(RunBatch == 0){
   user <- 'jfinn'
   airport <- 'SFO'
   response <- 'ARR_RATE'
-  model <- 'M5'
-  horizons <- paste0("H",c(1:12))
+  model <- 'M10'
+  horizons <- paste0("H1")
 }
 
 if(RunBatch == 1){

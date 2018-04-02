@@ -26,15 +26,38 @@ setwd("../")
 dir <- getwd()
 
 ################################################
+## define custom loss fuction
+kss_metric <- function(data, lev = NULL, model = NULL){
+  cm <- table(data$pred, data$obs)
+  H <- as.integer(cm[2,2])
+  FA <- as.integer(cm[2,1])
+  M <- as.integer(cm[1,2])
+  CN <- as.integer(cm[1,1])
+  acc_val <- (H + CN) / (H + CN + FA + M)
+  kss_val <- ((H * CN) - (FA * M))/((H + M)*(FA + CN))
+  spc_val <- (CN / (CN + FA))
+  sns_val <- (H / (M + H))
+  c(KSS = kss_val,
+    Accuracy = acc_val,
+    Sensitivity = sns_val,
+    Specificity = spc_val,
+    Miss = M,
+    Hit = H,
+    CorrectNormal = CN,
+    FalseAlarm = FA
+  )
+}
+
+################################################
 ## set model parameters
 
-RunBatch = 1
+RunBatch = 0
 
 if(RunBatch == 0){
   user <- 'jfinn'
   airport <- 'LGA'
   response <- 'ARR_RATE'
-  model <- 'M4'
+  model <- 'M5'
   horizon <- 'H1'
 }
 
@@ -56,7 +79,7 @@ rate <- ifelse(response == "DEP_RATE","ADR","AAR")
 response <- tolower(response)
 
 seed <- 2187
-spec_threshold <- 0.5
+spec_threshold <- 0.35
 weight_interval <- 5
 
 ################################################
@@ -74,24 +97,45 @@ DT <- readRDS(file = DT)
 # X <- X[1:5000,]
 # Y <- Y[1:5000,]
 
+## create combinations of rates -- pairwise models
 rates <- names(Y)[!names(Y) %in% c(response,"rate_lag","rate_dt","rate_dt_pct","rate_change")]
-print(rates)
-
-## define train / test -- split dataset into even nfold groups where no partition repeated
-index <- as.numeric(rownames(X))
-nfold <- 5
-groups <- cut_number(index, nfold)
-## create list of indices
-group_folds <- groupKFold(groups, k = nfold)
+pw_models <- c()
+for(r in rates){
+  rates <- rates[which(rates != r)]
+  temp <- merge(rates, r)
+  pw_models <- rbind(pw_models, temp)
+  rm(r, temp)
+}
+names(pw_models) <- c("rate_1", "rate_2")
+pw_models$rate_1 <- as.character(pw_models$rate_1)
+pw_models$rate_2 <- as.character(pw_models$rate_2)
 
 ################################################ SVM -- RFE with random forest
-for(r in rates){
-  print(r)
-  r_num <- as.numeric(gsub("rate_", "", r))
+i <- 1
+for(i in c(1:nrow(pw_models))){
+  ## set rates
+  rate_1 <- pw_models[i,"rate_1"]
+  rate_2 <- pw_models[i,"rate_2"]
+  mnum <- paste(rate_1, rate_2, sep = "_")
+  print(mnum)
+  
+  ## subset data -- default set rate_1 == 1, rate_2 == 0
+  Y_model <- Y[which(Y[,rate_1] == 1 | Y[,rate_2] == 1),]
+  train_idx <- rownames(Y_model)
+  Y_model <- ifelse(Y_model[,rate_1] == 1, 1, 0)
+  Y_model <- factor(Y_model, levels = c("1", "0"), labels = c("rate_1", "rate_2"))
+  X_model <- X[which(rownames(X) %in% train_idx),]
+  
+  ## define train / test -- split dataset into even nfold groups where no partition repeated
+  index <- as.numeric(rownames(X_model))
+  nfold <- 5
+  groups <- cut_number(index, nfold)
+  ## create list of indices
+  group_folds <- groupKFold(groups, k = nfold)
   
   ## identify rate -- get ratio of rate observations to total samples
-  rate_total <- sum(Y[,r])
-  ratio <- rate_total / nrow(Y)
+  rate_total <- length(Y_model[which(Y_model == 'rate_1')])
+  ratio <- rate_total / length(Y_model)
   
   ## set train control -- 5-fold cross validation
   ctrl <- trainControl(method = "cv"
@@ -100,12 +144,12 @@ for(r in rates){
                        , allowParallel = TRUE
                        , classProbs =  TRUE
                        , savePredictions = "all"
+                       # , sampling = "smote"
                        , summaryFunction = twoClassSummary
   )
   
-  ## subset predictors to most important -- FUTURE STEP
-  Y_rate <- factor(Y[,r], levels = c("0", "1"), labels = c("no", "yes"))
-  X_rate <- X
+  ## tune all models with weight
+  model_weights <- ifelse(Y_model == "rate_1", ratio, 1)
   
   ## initial tune with the same mtry, splitrule, and min.node.size value
   mtry <- 5
@@ -117,75 +161,30 @@ for(r in rates){
   cl <- makeCluster(detectCores() - 1)
   registerDoParallel(cl)
   start_time <- Sys.time()
-  fit_init <- train(y = Y_rate
-               , x = X_rate
+  fit_init <- train(y = Y_model
+               , x = X_model
                , method = "ranger"
                , trControl = ctrl
                , tuneGrid = tunegrid
+               # , tuneLength = 5
+               # , weights = model_weights
                , seed = seed
                , metric = "ROC"
   )
   stopCluster(cl)
   print(Sys.time() - start_time)
-  ## save the seeds so we can replicate for weight training
-  ctrl$seeds <- fit_init$control$seeds
-  
-  ## get specificity calculated on test set
-  init_specificity <- confusionMatrix(fit_init$pred$pred, fit_init$pred$obs)$byClass['Specificity']
-  print(init_specificity)
-  
-  ## if initial model meets specificity theshold, then save as final model
-  if(init_specificity >= spec_threshold) fit_final <- fit_init
-  
-  ## if initial model does not meet specificity threshold, then weight rate observations
-  if(init_specificity < spec_threshold){
-    ## now, train models using different weights on the rate observations -- penalize misclassification
-    cl <- makeCluster(detectCores() - 1)
-    registerDoParallel(cl)
-    start_time <- Sys.time()
-    i <- 1
-    ## start with weight == to ratio; iterate through until specificity threshold is met
-    while(i < 500){
-      print(paste("weight =", i))
-      model_weights <- ifelse(Y[,r] == 0, 1, 1 / ratio * i)
-      fit_wt <- train(y = Y_rate
-                      , x = X_rate
-                      , method = "ranger"
-                      , trControl = ctrl
-                      , tuneGrid = tunegrid
-                      , weights = model_weights
-                      , metric = "ROC"
-      )
-      fit_wt
-      ## get specificity calculated on test set
-      specificity <- confusionMatrix(fit_wt$pred$pred, fit_wt$pred$obs)$byClass['Specificity']
-      print(specificity)
-      
-      if(specificity >= spec_threshold){
-        ## save final model once criteria is met
-        fit_final <- fit_wt
-        break
-      }
-      else{
-        if(i == 1){i <- weight_interval}
-        else{i <- i + weight_interval}
-      }
-    }
-    stopCluster(cl)
-    print(Sys.time() - start_time)
-    
-  }
 
+  fit_final <- fit_init
   fit_final
-  pred <- fit_final$pred
-  print(roc(pred$obs, pred$yes) %>% auc())
+  pred <- fit_final$pred %>% filter(mtry == fit_final$bestTune$mtry & splitrule == fit_final$bestTune$splitrule)
+  # print(roc(pred$obs, pred$yes) %>% auc())
   print(confusionMatrix(pred$pred, pred$obs))
   
   ## plot ROC curves
   p1 <- pred %>%
-    ggplot(aes(m = yes, d = factor(obs))) + 
+    ggplot(aes(m = rate_2, d = factor(obs))) + 
     geom_roc(hjust = -0.4, vjust = 1.5) + coord_equal()
-  plot_file <- file.path(getwd(), "2_train", model, "rf/roc_plots", paste0(paste(airport, rate, model, horizon, r, sep = "_"), ".png"))
+  plot_file <- file.path(getwd(), "2_train", model, "ovo/roc_plots", paste0(paste(airport, rate, model, horizon, mnum, sep = "_"), ".png"))
   # dev.copy(png, plot_file, width = 800, height = 600)
   png(filename = plot_file)
   plot(p1)
@@ -197,11 +196,11 @@ for(r in rates){
   results_out$response <- response
   results_out$model <- model
   results_out$horizon <- horizon
-  results_out$rate <- r
+  results_out$rates <- mnum
   results_out$ratio <- ratio
-  results_out$i <- i
+  # results_out$i <- i
   results_out$weight <- max(model_weights)
-  filename <- file.path(dir,"2_train",model,"rf/rf_results.csv")
+  filename <- file.path(dir,"2_train",model,"ovo/rf_results.csv")
   write.table(results_out
               , file = filename
               , row.names=F
@@ -213,7 +212,7 @@ for(r in rates){
               , col.names=F)
   
   ## save final model object
-  rf_model_file <- file.path(dir,"2_train",model,"rf",paste0(airport,"_",rate,"_",model_num,"_",r,'_rf_model.rda'))
+  rf_model_file <- file.path(dir,"2_train",model,"ovo",paste0(airport,"_",rate,"_",model_num,"_",mnum,'_rf_model.rda'))
   saveRDS(fit_final, file = rf_model_file)
   
 }

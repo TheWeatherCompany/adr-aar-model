@@ -28,13 +28,13 @@ dir <- getwd()
 ################################################
 ## set model parameters
 
-RunBatch = 1
+RunBatch = 0
 
 if(RunBatch == 0){
   user <- 'jfinn'
   airport <- 'LGA'
   response <- 'ARR_RATE'
-  model <- 'M4'
+  model <- 'M5'
   horizon <- 'H1'
 }
 
@@ -56,8 +56,8 @@ rate <- ifelse(response == "DEP_RATE","ADR","AAR")
 response <- tolower(response)
 
 seed <- 2187
-spec_threshold <- 0.5
-weight_interval <- 5
+# spec_threshold <- 0.5
+# weight_interval <- 5
 
 ################################################
 ## load in model datasets 
@@ -84,6 +84,52 @@ groups <- cut_number(index, nfold)
 ## create list of indices
 group_folds <- groupKFold(groups, k = nfold)
 
+################################################ RANGER MULTICLASSIFICATION
+## set train control -- 5-fold cross validation
+ctrl <- trainControl(method = "cv"
+                     , number = nfold
+                     , index = group_folds
+                     , allowParallel = TRUE
+                     , classProbs =  TRUE
+                     , savePredictions = "all"
+                     # , summaryFunction = twoClassSummary
+)
+
+## subset predictors to most important -- FUTURE STEP
+Y_rate <- factor(Y[,response], levels = c(28, 30, 32, 34, 36, 38, 40), labels = paste0("rate_",c(28, 30, 32, 34, 36, 38, 40)))
+X_rate <- X
+
+## initial tune with the same mtry, splitrule, and min.node.size value
+mtry <- 5
+splitrule <- 'gini'
+min.node.size <- 1
+tunegrid <- expand.grid(.mtry = mtry, .splitrule = splitrule, .min.node.size = min.node.size)
+
+## fit initial model with no weighting / sampling schema
+cl <- makeCluster(detectCores() - 1)
+registerDoParallel(cl)
+start_time <- Sys.time()
+fit_init <- train(y = Y_rate
+                  , x = X_rate
+                  , method = "ranger"
+                  , trControl = ctrl
+                  # , tuneGrid = tunegrid
+                  # , tuneLength = 10
+                  , seed = seed
+                  # , metric = "ROC"
+)
+stopCluster(cl)
+print(Sys.time() - start_time)
+
+fit_init
+fit_init$resample
+
+trellis.par.set(caretTheme())
+densityplot(fit_init, pch = "|")
+
+pred <- fit_init$pred
+confusionMatrix(pred$pred, pred$obs)
+
 ################################################ SVM -- RFE with random forest
 for(r in rates){
   print(r)
@@ -93,40 +139,12 @@ for(r in rates){
   rate_total <- sum(Y[,r])
   ratio <- rate_total / nrow(Y)
   
-  ## set train control -- 5-fold cross validation
-  ctrl <- trainControl(method = "cv"
-                       , number = nfold
-                       , index = group_folds
-                       , allowParallel = TRUE
-                       , classProbs =  TRUE
-                       , savePredictions = "all"
-                       , summaryFunction = twoClassSummary
-  )
+
   
-  ## subset predictors to most important -- FUTURE STEP
-  Y_rate <- factor(Y[,r], levels = c("0", "1"), labels = c("no", "yes"))
-  X_rate <- X
+
   
-  ## initial tune with the same mtry, splitrule, and min.node.size value
-  mtry <- 5
-  splitrule <- 'gini'
-  min.node.size <- 1
-  tunegrid <- expand.grid(.mtry = mtry, .splitrule = splitrule, .min.node.size = min.node.size)
-  
-  ## fit initial model with no weighting / sampling schema
-  cl <- makeCluster(detectCores() - 1)
-  registerDoParallel(cl)
-  start_time <- Sys.time()
-  fit_init <- train(y = Y_rate
-               , x = X_rate
-               , method = "ranger"
-               , trControl = ctrl
-               , tuneGrid = tunegrid
-               , seed = seed
-               , metric = "ROC"
-  )
-  stopCluster(cl)
-  print(Sys.time() - start_time)
+
+
   ## save the seeds so we can replicate for weight training
   ctrl$seeds <- fit_init$control$seeds
   

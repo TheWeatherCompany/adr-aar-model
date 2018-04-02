@@ -50,7 +50,14 @@ keep <- c('LOCID'
           ,'DEP_DEMAND'
           ,'ARR_DEMAND'
           ,'DEP_RATE'
-          ,'ARR_RATE')
+          ,'ARR_RATE'
+          ## weather features
+          ,'MC'
+          ,'CEILING'
+          ,'VISIBLE'
+          ,'TEMP'
+          ,'WND_ANGL'
+          ,'WND_SPED')
 dat <- dat[which(names(dat) %in% c(keep))]
 names(dat) <- tolower(names(dat))
 # str(dat)
@@ -71,6 +78,26 @@ dat$dt <- as.POSIXct(dat$datetime_num,origin = "1970-01-01", tz = "UTC")
 
 dat <- dat[order(dat$dt),]
 dat <- unique(dat)
+
+################### remove certain periods of time based on initial analysis
+data_clean <- read_csv(file = "airport_data_clean.csv")
+data_clean <- data_clean %>% filter(airport == airport)
+if(nrow(data_clean) > 0){
+  ## first, remove time periods identified as irrelevant
+  for(i in c(1:nrow(data_clean))){
+    start_dt <- as.POSIXct(strptime(x = data_clean[i,"start"],format = "%m/%d/%y", tz = "UTC"))
+    end_dt <- as.POSIXct(strptime(x = data_clean[i,"end"],format = "%m/%d/%y", tz = "UTC"))
+    dat <- dat %>% filter(dat$dt < start_dt | dat$dt > end_dt)
+  }
+  ## next, remove hours if there are any curfews, etc.
+  curfew <- data_clean[,c("overnight_curfew","oc_start_utc","oc_end_utc")]
+  curfew <- unique(curfew)
+  if(curfew$overnight_curfew == 1){
+    curfew_hours <- seq(from = curfew$oc_start_utc, to = curfew$oc_end_utc, by = 1)
+    # dat$hr <- as.numeric(format(dat$dt, "%H"))
+    dat <- dat %>% filter(!as.numeric(format(dat$dt, "%H")) %in% curfew_hours)
+  }
+}
 
 ################### arrival & departure estimated vs. demand ratio
 # dat <- within(dat,{

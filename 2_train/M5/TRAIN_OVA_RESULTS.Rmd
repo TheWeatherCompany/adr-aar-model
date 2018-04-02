@@ -28,7 +28,7 @@ if(RunBatch == 0){
   user <- 'jfinn'
   airport <- 'LGA'
   response <- 'ARR_RATE'
-  model <- 'M4'
+  model <- 'M5'
   horizon <- 'H1'
 }
 
@@ -49,7 +49,7 @@ model_num <- paste0(model,"_",horizon)
 rate <- ifelse(response == "DEP_RATE","ADR","AAR")
 response <- tolower(response)
 
-model_type <- 'rf'
+model_type <- 'unweighted'
 model_dir <- file.path(dir, "2_train", model, model_type)
 
 seed <- 2187
@@ -62,7 +62,7 @@ binary_rate_pred <- function(r, X){
   print(r)
   
   ## load model
-  fitModel_file <- file.path(model_dir,paste(airport, rate, model_num, r, model_type, 'model.rda',sep = "_"))
+  fitModel_file <- file.path(model_dir,paste(airport, rate, model_num, r, "rf", 'model.rda',sep = "_"))
   fitModel <- readRDS(fitModel_file)
    
   ## print model results
@@ -108,8 +108,12 @@ for(r in rates){
 
 ```{r model_train, message=FALSE, warning=FALSE, echo=FALSE}
 ## create matrices for final model training
-Y_probs <- factor(Y[,response])
+Y_train <- factor(Y[,response])
 X_probs <- rate_probs %>% select(-rowIndex)
+X_train <- cbind(
+  X_probs
+  # , X
+)
 
 ## pre-process probabilities -- center and scale
 # preProc <- preProcess(x = X_probs, method = c("center","scale"))
@@ -127,7 +131,7 @@ fitControl <- trainControl(method = 'cv'
                            , allowParallel = TRUE
                            , number = nfold
                            # , repeats = 5
-                           , index = group_folds
+                           # , index = group_folds
                            , returnResamp = "all"
                            # , summaryFunction = kss_metric
                            # , sampling = 'up'
@@ -141,13 +145,14 @@ grid_ctree2 <- expand.grid(maxdepth = seq(3, 18, 3), mincriterion = 0.95)
 cl <- makeCluster(detectCores())
 registerDoParallel(cl)
 set.seed(218)
-fit_ctree2 <- train(x = X_probs
-                    , y = Y_probs
+fit_ctree2 <- train(x = X_train
+                    , y = Y_train
                     # , weights = case_weights
                     , method = 'ctree2'
+                    # , method = 'nb'
                     , trControl = fitControl
                     , tuneGrid = grid_ctree2
-                    # , tuneLength = 10
+                    # , tuneLength = 5
                     #, returnResamp = TRUE
                     # , metric = 'ROC'
 )
@@ -178,7 +183,7 @@ plot(featureImp)
 
 ```{r overall_metrics, message=FALSE, warning=FALSE, echo=FALSE}
 final_pred <- train_ctree2$pred %>% data.frame() %>% 
-  filter(maxdepth == as.numeric(train_ctree2$bestTune$maxdepth)) %>%
+  filter(maxdepth == as.numeric(train_ctree2$bestTune$maxdepth) & mincriterion == train_ctree2$bestTune$mincriterion) %>%
   mutate(
     act = as.numeric(as.character(obs)),
     pred = as.numeric(as.character(pred))
@@ -186,7 +191,7 @@ final_pred <- train_ctree2$pred %>% data.frame() %>%
   select(pred, act)
 final_pred$dt <- DT$horizon_data.DT
 final_pred$rate_change <- Y$rate_change
-final_pred <- cbind(final_pred, X_probs)
+final_pred <- cbind(final_pred, X_probs, X)
 
 final_pred <- final_pred %>%
   mutate(

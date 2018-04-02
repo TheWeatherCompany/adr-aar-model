@@ -83,3 +83,5 @@ generate_train_script.R alias
 *.html
 
 *.html
+
+*.png
